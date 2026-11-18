@@ -43,6 +43,7 @@ Deno.serve(async req => {
       }
       const changed=apply(G,payload,identity,b,revision);
       if(changed) {
+        payload.gameRevision = b.action === 'chat' ? (payload.gameRevision ?? revision) : revision + 1;
         const saved=await db(code+'&revision=eq.'+revision+'&select=code','PATCH',{payload,revision:revision+1,expires_at:expiry()});
         if(!saved.length) continue;
         if(b.action==='leave') return reply({left:true});

@@ -1,7 +1,30 @@
 (function(root){
 const colors=['red','green','blue'];
 function fresh(p){p.hand=[0,1,2,3,4,5,6];p.chips={red:2,green:2,blue:2,rainbow:1};}
-const aiNames = Object.freeze(['화요리', '쿤쿤쿤', '졔졔', '선수', '예슬', '에스', '쌉티', '금쪽', '너콩', '아리', '유뇨', '패치', '제현', '코난', '너구리']);
+// Traits belong to the roster, so they follow the character when seats are shuffled.
+const roster = [
+ // Name, trait, public play style, table talk, safety / variety / high cards / rainbow reserve.
+ ['화요리','블러핑','안전하게 놓을 수 있어도 패스로 상대를 흔들어요.','내가 왜 그랬는지는 다음 수에 알려줄게.',[.37,.78,.66,.39]],
+ ['쿤쿤쿤','쫄보','벌점이 날 가능성이 조금만 커져도 안전한 쪽을 골라요.','잠깐만… 방금 합계 몇이었지?',[.98,.08,.18,.89]],
+ ['졔졔','대범함','위험을 감수하고 큰 돌부터 털어내요.','이 정도 무게는 버티겠지!',[.12,.64,.98,.23]],
+ ['선수','안정형','변수가 적은 수를 고르고 레인보우는 아껴요.','일단 한 라운드씩 안전하게 가자.',[.88,.15,.46,.85]],
+ ['예슬','열심히함','후보를 한 번 더 비교하고 다음 라운드의 패까지 챙겨요.','빨강, 초록, 파랑… 세 군데 다 세 봤어.',[.72,.25,.62,.74]],
+ ['에스','계산적','예상 벌점이 낮은 후보를 좁혀서 골라요.','돌 개수까지 세면 얘기가 달라져.',[.87,.02,.73,.70]],
+ ['쌉티','냉정함','모험을 줄이고 불리한 배치는 침착하게 넘겨요.','응. 다음 차례.',[.81,.09,.54,.56]],
+ ['금쪽','볼빵빵','작은 돌부터 내고 큰 돌과 레인보우를 볼에 쟁여 둬요.','아직 볼에 하나 더 있는데…',[.60,.50,.04,.98]],
+ ['너콩','공리주의','내 벌점이 비슷하면 테이블 전체의 벌점이 적은 수를 택해요.','우리 다 같이 조금만 덜 아프게 가자.',[.73,.20,.50,.56]],
+ ['아리','약자우선','벌점을 가장 많이 받은 상대가 추가 벌점을 피하도록 도와요.','지금 제일 힘든 사람부터 챙기자.',[.78,.28,.42,.66]],
+ ['유뇨','좋은한수','다음에 남을 패를 염두에 두고 후보를 더 비교해요.','다음 차례까지 보면 이 수가 괜찮아.',[.72,.13,.78,.83]],
+ ['패치','꺼드럭','큰 돌을 앞세우고 레인보우도 일찍 꺼내요.','봤지? 이게 내 수야.',[.27,.47,.96,.07]],
+ ['제현','이상함','비슷한 벌점이 예상되면 남들이 덜 고를 법한 수도 섞어요.','이 수가 이상해? 그럼 잘 골랐네.',[.33,.99,.39,.47]],
+ ['코난','시끄러움','큰 돌로 먼저 움직이고 테이블에서 존재감을 드러내요.','잠깐! 방금 그 수 다들 봤어?!',[.48,.77,.91,.32]],
+ ['너구리','변태','안전한 레인보우 배치 중에서도 13에 가까운 받침대를 좋아해요.','12에서 딱 멈추면 얼마나 짜릿한데.',[.21,.83,.60,.16]]
+];
+const aiNames=Object.freeze(roster.map(row=>row[0]));
+function persona(id) {
+ const row=roster[id-1];
+ return row ? {name:row[0], trait:row[1], description:row[2], line:row[3]} : null;
+}
 
 function drawOpponents(count, humanNames) {
  const pool = aiNames.map((_, index) => index + 1).filter(id => !humanNames.includes(aiNames[id - 1]));
@@ -61,10 +84,9 @@ function normalizeProfile(raw={}){
  const result={};for(const key of ['risk','variety','highCards','rainbow'])result[key]=Number.isFinite(raw?.[key])?Math.max(0,Math.min(1,raw[key])):.5;
  return result;
 }
-// Small, editable differences; no animal is tied to a particular chip color.
 function defaultProfile(id){
- const presets=[[.35,.6,.65,.45],[.65,.45,.4,.65],[.4,.65,.6,.35],[.75,.35,.35,.7],[.8,.55,.25,.6],[.35,.4,.75,.4],[.6,.5,.45,.7],[.2,.5,.85,.25],[.5,.75,.5,.35]];
- const values=presets[id-1];return values?Object.fromEntries(['risk','variety','highCards','rainbow'].map((key,i)=>[key,values[i]])):normalizeProfile();
+ const values=roster[id-1]?.[4];
+ return values ? {risk:values[0],variety:values[1],highCards:values[2],rainbow:values[3]} : normalizeProfile();
 }
 function profileFor(s,id,options){return options.profiles===false?normalizeProfile():normalizeProfile(s.aiProfiles?.[id]??defaultProfile(s.players[id]?.rosterId ?? id));}
 function observe(s,id){
@@ -158,27 +180,65 @@ function choose(s,id,options={}){
  const view=observe(s,id),profile=profileFor(s,id,options),piles=compactPiles(view.piles),candidates=[];
  for(const value of view.hand)for(const color of chipColors)if(view.chips[color])candidates.push({id,value,color});
  if(candidates.length===1)return candidates[0];
- const samples=Number.isFinite(options.samples)?Math.max(8,Math.min(96,Math.floor(options.samples))):24;
+ const rosterId=options.profiles===false ? 0 : s.players[id].rosterId;
+ const baseSamples=Number.isFinite(options.samples)?Math.max(8,Math.min(96,Math.floor(options.samples))):24;
+ const samples=Math.min(96,baseSamples+([5,11].includes(rosterId)?Math.ceil(baseSamples/3):0));
+ const helpWeights=publicHelpWeights(s,id,rosterId);
  const scenarios=Array.from({length:samples},()=>({moves:view.opponents.map(p=>sampleOpponent(p,piles,view.count,Math.random)),seed:Math.floor(Math.random()*4294967296)}));
  const costs=candidates.map(move=>{
-  let total=0,squares=0,future=0;
+  let total=0,squares=0,future=0,others=0;
   for(const scenario of scenarios){
    const queue=order([...scenario.moves,move],view.leader,view.count).map(m=>({...m,deferred:false}));
    const result=runQueue(piles,queue,[],view.count,seededRandom(scenario.seed),options.passes!==false);
+   if(helpWeights) others+=weightedPenalty(result.points,helpWeights);
    const points=result.points[id];total+=points;squares+=points*points;
    if(options.resources!==false)future+=remainingCost(view.hand,view.chips,move,result.piles,profile);
   }
   const average=total/samples,spread=Math.sqrt(Math.max(0,squares/samples-average*average));
-  return average+(.1+.4*profile.risk)*spread+future/samples-move.value*(.015+.055*profile.highCards);
+  return average+others/samples+(.1+.4*profile.risk)*spread+future/samples-move.value*(.015+.055*profile.highCards);
  });
  const best=Math.min(...costs),temperature=.1+.4*profile.variety,gap=.35+.8*profile.variety;
  const weights=costs.map(c=>c-best>gap?0:Math.exp(-(c-best)/temperature));
  return candidates[weightedIndex(weights,Math.random)];
 }
+function publicHelpWeights(s,id,rosterId){
+ if(rosterId!==9 && rosterId!==10)return null;
+ const opponents=s.players.filter((_,seat)=>seat!==id);
+ const highest=Math.max(...opponents.map(p=>p.score));
+ const count=rosterId===9 ? opponents.length : opponents.filter(p=>p.score===highest).length;
+ return s.players.map((p,seat)=>seat!==id && (rosterId===9 || p.score===highest) ? (rosterId===9?.5:.7)/count : 0);
+}
+function weightedPenalty(points,weights){
+ return points.reduce((sum,points,index)=>sum+points*weights[index],0);
+}
 function botAction(s,options={}){
  const piles=compactPiles(s.piles),queue=s.queue,move=queue[0];
  if(!move)throw Error('empty');
- return options.passes===false?simpleAction(piles,queue,Math.random):plannedAction(piles,queue,s.passed,s.players.length,Math.random);
+ const normal=options.passes===false?simpleAction(piles,queue,Math.random):plannedAction(piles,queue,s.passed,s.players.length,Math.random);
+ if(options.profiles===false || options.passes===false)return normal;
+ const rosterId=s.players[move.id].rosterId;
+ if(rosterId===15 && move.color==='rainbow' && !normal.pass){
+  const safe=colors.filter(c=>!penalty(piles,c,move.value));
+  if(safe.length)return {pass:false,color:safe.sort((a,b)=>piles[b].total-piles[a].total)[0]};
+ }
+ if(rosterId===1 && !move.deferred && !normal.pass && queue.length>1 && Math.random()<.40){
+  const bluff={pass:true,color:normal.color};
+  const after=runQueue(piles,queue,s.passed,s.players.length,Math.random,false,bluff);
+  if(after.points[move.id]<=penalty(piles,normal.color,move.value))return bluff;
+ }
+ const weights=publicHelpWeights(s,move.id,rosterId);
+ if(!weights)return normal;
+ const targets=move.color==='rainbow'?colors:[move.color];
+ const actions=[normal,...targets.map(color=>({pass:false,color}))];
+ if(!move.deferred)actions.push({pass:true,color:normal.color});
+ let best=normal,bestCost=Infinity;
+ const seed=Math.floor(Math.random()*4294967296);
+ for(const action of actions){
+  const result=runQueue(piles,queue,s.passed,s.players.length,seededRandom(seed),false,action);
+  const cost=result.points[move.id]+weightedPenalty(result.points,weights);
+  if(cost<bestCost){bestCost=cost;best=action;}
+ }
+ return best;
 }
-const api={colors,aiNames,restoreRoster,fresh,create,createMatch,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
+const api={colors,aiNames,persona,restoreRoster,fresh,create,createMatch,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
 })(typeof window!=='undefined'?window:globalThis);

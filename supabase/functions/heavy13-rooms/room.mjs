@@ -16,12 +16,31 @@ export function newRoom(name, identity, capacity) {
   }
   return { capacity, seats: [{name: nickname(name), identity}], game: null, pending: {}, closed: false };
 }
+function appendChat(room, sender, text, nonce) {
+  const history = room.chat ??= [];
+  const seq = (history.at(-1)?.seq ?? 0) + 1;
+  history.push({seq, name: sender.name, author: sender.identity, bot: !!sender.rosterId, text, nonce, time: Date.now()});
+  if (history.length > 80) history.shift();
+}
+function sendChat(room, seat, input) {
+  requireThat(typeof input.nonce === 'string' && /^[a-f0-9]{32}$/.test(input.nonce), '전송 정보를 확인해 주세요.');
+  const previous = (room.chat ?? []).findLast(m => m.author === seat.identity);
+  if ((room.chat ?? []).some(m => m.author === seat.identity && m.nonce === input.nonce)) return false;
+  const text = typeof input.text === 'string' ? input.text.trim().normalize('NFC') : '';
+  requireThat(text && text.length <= 200 && !/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u.test(text), '메시지는 한 줄로 1~200자까지 보낼 수 있어요.');
+  requireThat(!previous || Date.now() - previous.time >= 750, '잠시 후에 보내 주세요.', 429);
+  appendChat(room, seat, text, input.nonce);
+  return true;
+}
 export function view(G, room, id, revision) {
   const g = room.game;
   const players = room.seats.map((s, i) => ({
     name: s.name, rosterId: s.rosterId ?? null, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
   }));
-  const out = { revision, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
+  const chat = (room.chat ?? []).map(({seq, name, author, bot, text, time}) => ({
+    seq, name, bot, text, time, mine: author === room.seats[id]?.identity
+  }));
+  const out = { revision, gameRevision: room.gameRevision ?? revision, chat, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
   if (!g) return out;
   const me = g.players[id];
   Object.assign(out, {
@@ -45,8 +64,17 @@ function submitBots(G, room) {
 function playBotTurns(G, room) {
   const g = room.game;
   while (g.phase === 'resolve' && room.seats[G.current(g).id].rosterId) {
+    const seat = room.seats[G.current(g).id];
     const move = G.botAction(g);
     G.act(g, move.pass, move.color);
+    if (!move.pass && g.round % 2 === 1 && g.lastChatterRound !== g.round) {
+      const bots = room.seats.filter(s => s.rosterId);
+      const speaker = bots[((g.round - 1) / 2) % bots.length];
+      if (seat === speaker) {
+        appendChat(room, seat, G.persona(seat.rosterId).line);
+        g.lastChatterRound = g.round;
+      }
+    }
   }
 }
 
@@ -66,6 +94,9 @@ export function apply(G, room, identity, input, revision) {
   }
   requireThat(id >= 0, '이 브라우저로 방에 다시 입장해 주세요.', 403);
   if (action === 'read') return false;
+  if (action === 'chat') return sendChat(room, room.seats[id], input);
+  // Chat writes advance the storage revision without invalidating game decisions.
+  const currentTurn = Number.isInteger(input.revision) && input.revision >= (room.gameRevision ?? revision) && input.revision <= revision;
   if (action === 'leave') {
     requireThat(!g, '게임 중에는 자리를 유지합니다.', 409);
     room.seats.splice(id,1);
@@ -74,7 +105,7 @@ export function apply(G, room, identity, input, revision) {
   }
   if (action === 'start' || action === 'rematch') {
     requireThat(id === 0, '방장만 시작할 수 있습니다.', 403);
-    requireThat(action === 'start' ? !g : g?.phase === 'finished' && input.revision === revision, '이미 진행 중입니다.', 409);
+    requireThat(action === 'start' ? !g : g?.phase === 'finished' && currentTurn, '이미 진행 중입니다.', 409);
     const humans = room.seats.filter(seat => !seat.rosterId);
     const size = room.capacity ?? humans.length;
     requireThat(size >= 2, '두 명 이상 모이면 시작할 수 있습니다.');
@@ -104,7 +135,7 @@ export function apply(G, room, identity, input, revision) {
     }
     return true;
   }
-  requireThat(input.revision === revision, '다른 플레이어가 먼저 진행했습니다.', 409);
+  requireThat(currentTurn, '다른 플레이어가 먼저 진행했습니다.', 409);
   if (action === 'advance') {
     requireThat(['chips','cards','roundEnd'].includes(g.phase), '현재 진행할 수 없습니다.', 409);
     if (g.phase === 'roundEnd') {

@@ -32,9 +32,10 @@
   function accept(data) {
     if(data.unchanged || (state && data.revision<state.revision)) return;
     if(!state || data.round!==state.round || data.phase!==state.phase) selected={};
-    state=data; $('#entry').hidden=true; $('#match').hidden=false; $('#codeText').textContent=code;
+    const gameChanged=!state || (data.gameRevision ?? data.revision)!==(state.gameRevision ?? state.revision);
+    state=data; updateChat(data.chat ?? []); $('#entry').hidden=true; $('#match').hidden=false; $('#codeText').textContent=code;
     $('#title').textContent=data.phase==='lobby'?'대기실':data.phase==='finished'?'최종 순위':data.round+'라운드';
-    render();
+    if(gameChanged)render();
   }
   function schedule(ms=1900) {
     clearTimeout(timer);
@@ -55,7 +56,7 @@
     } finally { schedule(disconnected?4000:1900); }
   }
   function toEntry() {
-    clearTimeout(timer);state=null;code='';token='';selected={};disconnected=false;
+    resetChat();clearTimeout(timer);state=null;code='';token='';selected={};disconnected=false;
     history.replaceState(null,'',location.pathname);$('#entry').hidden=false;$('#match').hidden=true;
     $('#resume').hidden=!read(recentKey);
   }
@@ -81,8 +82,15 @@
     const n = id - 1;
     return '<span class="sdFace" aria-hidden="true" style="background-position:'+((n%5)*25)+'% '+(Math.floor(n/5)*50)+'%"></span>';
   }
+  function traitFor(name, rosterId) {
+    return Game.persona(rosterId || Game.aiNames.indexOf(name) + 1)?.trait || '';
+  }
+  function traitBadge(p) {
+    const trait=traitFor(p.name,p.rosterId);
+    return trait ? '<span class="traitBadge">'+esc(trait)+'</span>' : '';
+  }
   function playerList(s) {
-    return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span'+(p.rosterId?' class="botName"':'')+'>'+(p.rosterId?botPortrait(p.rosterId):'')+esc(p.name)+(p.rosterId?' <small>AI</small>':'')+(i===s.id?' <small>나</small>':'')+
+    return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span'+(p.rosterId?' class="botName"':'')+'>'+(p.rosterId?botPortrait(p.rosterId):'')+esc(p.name)+traitBadge(p)+(p.rosterId?' <small>AI</small>':'')+(i===s.id?' <small>나</small>':'')+
       (i===0?' <small>방장</small>':'')+(s.phase!=='lobby' && s.leader===i?' <small>선</small>':'')+'</span>'+
       (s.phase==='lobby'?'':(s.phase==='select'?(p.submitted?'제출 완료':'선택 중')+' · ':'')+'<b>'+p.score+'점</b>')+'</li>').join('')+'</ul>';
   }
@@ -128,7 +136,7 @@
     } else if(s.phase==='finished'){
       let rank=0;
       content='<div class="lobby">'+s.ranking.map((p,i,all)=>{if(!i||p.score!==all[i-1].score||p.last!==all[i-1].last)rank=i+1;
-        return '<div class="rankLine"><strong>'+rank+'위</strong>'+esc(s.players[p.id].name)+(p.id===s.id?' · 나':'')+'<b>'+p.score+'점</b></div>';}).join('')+
+        return '<div class="rankLine"><strong>'+rank+'위</strong>'+esc(s.players[p.id].name)+traitBadge(s.players[p.id])+(p.id===s.id?' · 나':'')+'<b>'+p.score+'점</b></div>';}).join('')+
         '<div class="controls">'+(s.id===0?btn('rematch',s.players.some(p=>p.rosterId)?'AI 재추첨하고 다시 하기':'같은 멤버로 다시 하기'):'방장이 재대결을 시작할 수 있습니다.')+btn('home','다른 방으로','quiet')+'</div></div>';
     } else {
       const logs=[...s.events].reverse().concat([...s.previous].reverse());
@@ -156,6 +164,82 @@
     if(b.dataset.color)selected.color=b.dataset.color;
     if(b.dataset.target)selected.target=b.dataset.target;
     render();
+  });
+  const chatPanel=$('#roomChat'), chatLog=$('#chatLog'), chatInput=$('#chatInput'), chatToggle=$('#chatToggle');
+  let lastMessage=0, readThrough=0, chatRoom='', pendingChat=null, sending=false, chatEpoch=0;
+  const clockFormat=new Intl.DateTimeFormat('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  function chatElement(tag, className, text) {
+    const el=document.createElement(tag);
+    el.className=className; el.textContent=text; return el;
+  }
+  function addMessage(m) {
+    const row=document.createElement('div'); row.className='chatMessage'+(m.mine?' mine':'');
+    row.dataset.seq=m.seq;
+    const meta=chatElement('div','chatMeta','');
+    meta.append(chatElement('strong','',m.name));
+    const trait=traitFor(m.name);
+    if(trait)meta.append(chatElement('span','traitBadge',trait));
+    if(m.bot)meta.append(chatElement('small','chatAi','AI'));
+    if(m.mine)meta.append(chatElement('small','','나'));
+    meta.append(chatElement('time','',clockFormat.format(m.time)));
+    row.append(meta,chatElement('p','chatBubble',m.text));
+    chatLog.append(row);
+  }
+  function updateChat(messages) {
+    if(chatRoom!==code) {
+      chatRoom=code; readThrough=Number(read('heavy13.chatRead.'+code)) || 0;
+      $('#chatRoomName').textContent='방 '+code;
+    }
+    const tail=messages.at(-1)?.seq ?? 0;
+    if(tail!==lastMessage){
+      const follow=chatLog.scrollHeight-chatLog.clientHeight-chatLog.scrollTop<36;
+      for(const m of messages)if(m.seq>lastMessage)addMessage(m);
+      while(chatLog.firstChild && Number(chatLog.firstChild.dataset.seq)<messages[0]?.seq)chatLog.firstChild.remove();
+      lastMessage=tail;
+      if(follow || messages.at(-1)?.mine)chatLog.scrollTop=chatLog.scrollHeight;
+    }
+    $('#chatEmpty').hidden=messages.length!==0;
+    if(!chatPanel.hidden && tail>readThrough) {
+      readThrough=tail; write('heavy13.chatRead.'+code,String(tail));
+    }
+    const unread=messages.filter(m=>m.seq>readThrough && !m.mine).length;
+    const badge=$('#chatUnread');badge.hidden=!unread;badge.textContent=String(unread);
+    chatToggle.setAttribute('aria-label',unread?'방 채팅, 안 읽은 메시지 '+unread+'개':'방 채팅');
+  }
+  function setChatOpen(open) {
+    chatPanel.hidden=!open; chatToggle.setAttribute('aria-expanded',String(open));
+    if(open){
+      updateChat(state?.chat ?? []);chatLog.scrollTop=chatLog.scrollHeight;
+      if(window.matchMedia('(pointer:fine)').matches)chatInput.focus({preventScroll:true});
+    }else chatToggle.focus({preventScroll:true});
+  }
+  function resetChat() {
+    chatEpoch++; pendingChat=null;sending=false;chatRoom='';lastMessage=readThrough=0;
+    chatPanel.hidden=true;chatToggle.setAttribute('aria-expanded','false');
+    chatLog.replaceChildren();chatInput.value='';$('#chatError').textContent='';
+    $('#chatSend').disabled=true;
+  }
+  chatToggle.onclick=()=>setChatOpen(chatPanel.hidden);
+  $('#chatClose').onclick=()=>setChatOpen(false);
+  chatPanel.addEventListener('keydown',e=>{if(e.key==='Escape' && !e.isComposing)setChatOpen(false);});
+  chatInput.addEventListener('input',()=>{$('#chatSend').disabled=sending || !chatInput.value.trim();});
+  chatInput.addEventListener('keydown',e=>{if(e.key==='Enter' && (e.isComposing || e.keyCode===229))e.preventDefault();});
+  $('#chatForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const text=chatInput.value.trim(), epoch=chatEpoch;
+    if(!text || !state || sending)return;
+    if(!pendingChat || pendingChat.text!==text)pendingChat={text,nonce:makeToken().slice(0,32)};
+    sending=true;$('#chatSend').disabled=true;$('#chatError').textContent='';
+    try {
+      const data=await request('chat',pendingChat);
+      if(epoch!==chatEpoch)return;
+      accept(data);pendingChat=null;
+      if(chatInput.value.trim()===text)chatInput.value='';
+    } catch(error){
+      if(epoch===chatEpoch)$('#chatError').textContent=error.status?error.message:'연결이 끊겼어요. 다시 보내기를 눌러 주세요.';
+    } finally {
+      if(epoch===chatEpoch){sending=false;$('#chatSend').disabled=!chatInput.value.trim();}
+    }
   });
   $('#entryForm').addEventListener('submit',e=>{
     e.preventDefault();const join=$('#create').hidden||e.submitter?.id==='join'||(!e.submitter&&$('#roomCode').value);
