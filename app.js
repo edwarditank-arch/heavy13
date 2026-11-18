@@ -1,9 +1,15 @@
 const G=Game,$=s=>document.querySelector(s),names={red:'빨강',green:'초록',blue:'파랑',rainbow:'레인보우'},key='heavy13-save-v1';let state=null,card=null,chip=null,target=null;try{let old=JSON.parse(localStorage.getItem(key));if(old&&old.version===1&&old.players.length>=2&&old.players.length<=10)state=old;}catch(e){}function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(e){}}
 if (state) G.restoreRoster(state);
 
+function portraitPosition(rosterId) {
+ const index = rosterId - 1;
+ return `${(index % 5) * 25}% ${Math.floor(index / 5) * 50}%`;
+}
+
 function playerAvatar(id) {
- const player = state.players[id];
- return `<span class="avatar seal" aria-hidden="true">${id ? player.name[0] : '나'}</span>`;
+ if (!id) return '<span class="avatar sdFace selfFace" aria-hidden="true"></span>';
+ const position = portraitPosition(state.players[id].rosterId);
+ return `<span class="avatar sdFace" style="background-position:${position}" aria-hidden="true"></span>`;
 }
 
 function profilesForMatch(game, preferences) {
@@ -29,6 +35,7 @@ if(state){state.aiProfiles=state.phase==='select' || !state.aiProfiles ? profile
 function renderAISettings(){
  if(!aiDraft)return;
  const id=Number($('#aiPlayer').value),profile=aiDraft[id];if(!profile)return;
+ $('#profilePortrait').style.backgroundPosition=portraitPosition(id);
  for(const [field,inputId] of Object.entries(aiFields)){
   const value=Math.round(profile[field]*100);$('#'+inputId).value=value;$('#'+inputId+'Value').textContent=value;
  }
