@@ -9,7 +9,7 @@
 .entryForm { display:grid; gap:11px; padding:28px; }
 .entryForm label { font-weight:700; }
 .entryForm label:not(:first-child) { margin-top:14px; }
-.entryForm input { width:100%; min-width:0; border:1px solid #999a9d; border-radius:5px; font:inherit; padding:12px; background:#fffefa; color:var(--ink); }
+.entryForm input, .entryForm select { width:100%; min-width:0; border:1px solid #999a9d; border-radius:5px; font:inherit; padding:12px; background:#fffefa; color:var(--ink); }
 #roomCode {text-transform:uppercase;letter-spacing:.12em;}
 #notice:not(:empty) { padding:10px 14px; margin:0 0 16px; border-left:3px solid var(--accent); background:var(--paper); color:var(--ink); }
 .onlineHeading,.roomInfo,.onlinePlayers li {display:flex;align-items:center;gap:12px;}
@@ -39,3 +39,6 @@
 .friendsLink {font-size:12px;padding:8px;}
 .friendsStart {box-sizing:border-box;justify-content:space-between;width:100%;padding:13px 18px;border-radius:6px;background:var(--ink);color:#fff;margin:0 0 9px;}
 header nav {align-items:center;}
+#roomSize { display: grid; gap: 8px; }
+.onlinePlayers .botName { display: inline-flex; align-items: center; gap: 6px; }
+.onlinePlayers .sdFace { width: 26px; height: 26px; flex-basis: 26px; }

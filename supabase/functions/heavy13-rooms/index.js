@@ -27,7 +27,7 @@ Deno.serve(async req => {
     const identity=Array.from(new Uint8Array(hash), x=>x.toString(16).padStart(2,'0')).join('');
     const code='code=eq.'+b.code, now=new Date().toISOString();
     if(b.action==='create') {
-      const payload=newRoom(b.name,identity);
+      const payload=newRoom(b.name,identity,b.capacity);
       await db('expires_at=lt.'+now+'&select=code','DELETE');
       const rows=await db('select=code','POST',{code:b.code,payload,revision:1,expires_at:expiry()});
       if(rows.length) return reply(view(G,payload,0,1));

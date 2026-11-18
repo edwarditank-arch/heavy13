@@ -66,7 +66,7 @@
     busy=true;code=roomCode;token=read(localKey(code)) || makeToken();write(localKey(code),token);
     const form=$('#entryForm');for(const el of form.elements)el.disabled=true;
     try {
-      const data=await request(action,{name});
+      const data=await request(action,action==='create' ? {name,capacity:Number($('#capacity').value)} : {name});
       if(name)write('heavy13.nickname',name);
       write(recentKey,code);history.replaceState(null,'','?room='+code);
       say('');accept(data);
@@ -77,8 +77,12 @@
       say(e.status?e.message:'연결에 실패했습니다. 같은 방 코드로 다시 시도해 주세요.');
     } finally {busy=false;for(const el of form.elements)el.disabled=false;render();schedule();}
   }
+  function botPortrait(id) {
+    const n = id - 1;
+    return '<span class="sdFace" aria-hidden="true" style="background-position:'+((n%5)*25)+'% '+(Math.floor(n/5)*50)+'%"></span>';
+  }
   function playerList(s) {
-    return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span>'+esc(p.name)+(i===s.id?' <small>나</small>':'')+
+    return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span'+(p.rosterId?' class="botName"':'')+'>'+(p.rosterId?botPortrait(p.rosterId):'')+esc(p.name)+(p.rosterId?' <small>AI</small>':'')+(i===s.id?' <small>나</small>':'')+
       (i===0?' <small>방장</small>':'')+(s.phase!=='lobby' && s.leader===i?' <small>선</small>':'')+'</span>'+
       (s.phase==='lobby'?'':(s.phase==='select'?(p.submitted?'제출 완료':'선택 중')+' · ':'')+'<b>'+p.score+'점</b>')+'</li>').join('')+'</ul>';
   }
@@ -114,14 +118,18 @@
     const s=state;if(!s)return;
     let content;
     if(s.phase==='lobby'){
-      content='<div class="lobby"><h2>참가자 '+s.players.length+' / 10</h2>'+playerList(s)+'<p>'+(
-        s.id===0?'친구에게 링크나 방 코드를 보내세요. 두 명부터 시작할 수 있습니다.':'방장이 게임을 시작하면 내 카드가 열립니다.')+'</p><div class="controls">'+
-        (s.id===0?btn('start','친구 대전 시작','primary',s.players.length<2):'')+btn('leave','대기실 나가기','quiet')+'</div></div>';
+      const humans=s.players.length, size=s.capacity ?? 10;
+      const fill=s.capacity ? size-humans : 0;
+      const summary=fill ? '시작하면 빈자리 '+fill+'석에 무작위 AI가 합류합니다.'
+        : s.capacity ? '전원이 모였습니다.' : '두 명부터 시작할 수 있습니다.';
+      content='<div class="lobby"><h2>참가자 '+humans+' / '+size+'명</h2>'+playerList(s)+'<p>'+summary+'</p><div class="controls">'+
+        (s.id===0?btn('start','친구 대전 시작','primary',!s.capacity && humans<2):'방장의 시작을 기다립니다.')+
+        btn('leave','대기실 나가기','quiet')+'</div></div>';
     } else if(s.phase==='finished'){
       let rank=0;
       content='<div class="lobby">'+s.ranking.map((p,i,all)=>{if(!i||p.score!==all[i-1].score||p.last!==all[i-1].last)rank=i+1;
         return '<div class="rankLine"><strong>'+rank+'위</strong>'+esc(s.players[p.id].name)+(p.id===s.id?' · 나':'')+'<b>'+p.score+'점</b></div>';}).join('')+
-        '<div class="controls">'+(s.id===0?btn('rematch','같은 멤버로 다시 하기'):'방장이 재대결을 시작할 수 있습니다.')+btn('home','다른 방으로','quiet')+'</div></div>';
+        '<div class="controls">'+(s.id===0?btn('rematch',s.players.some(p=>p.rosterId)?'AI 재추첨하고 다시 하기':'같은 멤버로 다시 하기'):'방장이 재대결을 시작할 수 있습니다.')+btn('home','다른 방으로','quiet')+'</div></div>';
     } else {
       const logs=[...s.events].reverse().concat([...s.previous].reverse());
       content='<div class="layout"><section><div class="table"><div class="tableTop">라운드 '+s.round+' / 14 <span class="badge">선 · '+esc(s.players[s.leader].name)+'</span></div>'+piles(s)+'<div class="stage">'+stage(s)+'</div></div>'+
@@ -163,6 +171,6 @@
   if(validCode.test(inviteCode)){
     $('#roomCode').value=inviteCode;
     if(read(localKey(inviteCode)))enter('read',inviteCode);
-    else {$('#join').textContent='초대받은 방에 입장';$('#create').hidden=true;$('#join').className='primary';}
+    else {$('#join').textContent='초대받은 방에 입장';$('#create').hidden=true;$('#roomSize').hidden=true;$('#join').className='primary';}
   }
 })();

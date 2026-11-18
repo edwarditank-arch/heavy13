@@ -10,15 +10,18 @@ export function nickname(value) {
   requireThat(name.length > 0 && [...name].length <= 16 && !/[\p{C}<>]/u.test(name), '닉네임은 1~16자로 입력해 주세요.');
   return name;
 }
-export function newRoom(name, identity) {
-  return { seats: [{name: nickname(name), identity}], game: null, pending: {}, closed: false };
+export function newRoom(name, identity, capacity) {
+  if (capacity !== undefined) {
+    requireThat(Number.isInteger(capacity) && capacity >= 2 && capacity <= 10, '총인원은 방장을 포함해 2~10명으로 정해 주세요.');
+  }
+  return { capacity, seats: [{name: nickname(name), identity}], game: null, pending: {}, closed: false };
 }
 export function view(G, room, id, revision) {
   const g = room.game;
   const players = room.seats.map((s, i) => ({
-    name: s.name, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
+    name: s.name, rosterId: s.rosterId ?? null, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
   }));
-  const out = { revision, id, players, phase: g?.phase ?? 'lobby' };
+  const out = { revision, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
   if (!g) return out;
   const me = g.players[id];
   Object.assign(out, {
@@ -33,6 +36,20 @@ export function view(G, room, id, revision) {
   if (g.phase === 'finished') out.ranking = G.ranking(g).map(p => ({id:p.id, score:p.score, last:p.last}));
   return out;
 }
+function submitBots(G, room) {
+  for (const [id, seat] of room.seats.entries()) {
+    if (seat.rosterId) room.pending[id] = G.choose(room.game, id, {samples:8});
+  }
+}
+
+function playBotTurns(G, room) {
+  const g = room.game;
+  while (g.phase === 'resolve' && room.seats[G.current(g).id].rosterId) {
+    const move = G.botAction(g);
+    G.act(g, move.pass, move.color);
+  }
+}
+
 export function apply(G, room, identity, input, revision) {
   const id = room.seats.findIndex(s => s.identity === identity);
   const g = room.game;
@@ -41,7 +58,7 @@ export function apply(G, room, identity, input, revision) {
   if (action === 'join') {
     if (id >= 0) return false;
     requireThat(!g, '이미 게임이 시작된 방입니다.', 409);
-    requireThat(room.seats.length < 10, '방이 가득 찼습니다.', 409);
+    requireThat(room.seats.length < (room.capacity ?? 10), '방이 가득 찼습니다.', 409);
     const name = nickname(input.name);
     requireThat(!room.seats.some(s => s.name === name), '이 방에서 이미 사용 중인 닉네임입니다.', 409);
     room.seats.push({name, identity});
@@ -58,10 +75,14 @@ export function apply(G, room, identity, input, revision) {
   if (action === 'start' || action === 'rematch') {
     requireThat(id === 0, '방장만 시작할 수 있습니다.', 403);
     requireThat(action === 'start' ? !g : g?.phase === 'finished' && input.revision === revision, '이미 진행 중입니다.', 409);
-    requireThat(room.seats.length >= 2, '두 명 이상 모이면 시작할 수 있습니다.');
-    room.game = G.create(room.seats.length - 1);
-    room.seats.forEach((s,i) => { room.game.players[i].name = s.name; });
+    const humans = room.seats.filter(seat => !seat.rosterId);
+    const size = room.capacity ?? humans.length;
+    requireThat(size >= 2, '두 명 이상 모이면 시작할 수 있습니다.');
+    room.game = G.createMatch(humans.map(seat => seat.name), size - humans.length);
+    const bots = room.game.players.slice(humans.length).map(({name, rosterId}) => ({name, rosterId}));
+    room.seats = humans.concat(bots);
     room.pending = {};
+    submitBots(G, room);
     return true;
   }
   requireThat(g && input.round === g.round && input.phase === g.phase, '게임이 진행됐습니다. 현재 화면을 확인해 주세요.', 409);
@@ -86,7 +107,10 @@ export function apply(G, room, identity, input, revision) {
   requireThat(input.revision === revision, '다른 플레이어가 먼저 진행했습니다.', 409);
   if (action === 'advance') {
     requireThat(['chips','cards','roundEnd'].includes(g.phase), '현재 진행할 수 없습니다.', 409);
-    if (g.phase === 'roundEnd') G.next(g); else G.reveal(g);
+    if (g.phase === 'roundEnd') {
+      G.next(g);
+      submitBots(G, room);
+    } else G.reveal(g);
   } else if (action === 'place' || action === 'pass') {
     requireThat(g.phase === 'resolve' && G.current(g).id === id, '내 차례에 배치할 수 있습니다.', 403);
     const turn = G.current(g);
@@ -94,5 +118,6 @@ export function apply(G, room, identity, input, revision) {
     requireThat(action !== 'place' || turn.color !== 'rainbow' || colors.includes(input.target), '받침대를 골라 주세요.');
     G.act(g,action === 'pass',input.target);
   } else throw new RoomError('알 수 없는 요청입니다.');
+  playBotTurns(G, room);
   return true;
 }

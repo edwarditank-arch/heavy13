@@ -3,8 +3,8 @@ const colors=['red','green','blue'];
 function fresh(p){p.hand=[0,1,2,3,4,5,6];p.chips={red:2,green:2,blue:2,rainbow:1};}
 const aiNames = Object.freeze(['화요리', '쿤쿤쿤', '졔졔', '선수', '예슬', '에스', '쌉티', '금쪽', '너콩', '아리', '유뇨', '패치', '제현', '코난', '너구리']);
 
-function drawOpponents(count) {
- const pool = aiNames.map((_, index) => index + 1);
+function drawOpponents(count, humanNames) {
+ const pool = aiNames.map((_, index) => index + 1).filter(id => !humanNames.includes(aiNames[id - 1]));
  for (let i = pool.length - 1; i > 0; i--) {
   const other = Math.floor(Math.random() * (i + 1));
   [pool[i], pool[other]] = [pool[other], pool[i]];
@@ -13,8 +13,12 @@ function drawOpponents(count) {
 }
 
 function create(n) {
- const players = [{name:'나', score:0, last:0}];
- for (const rosterId of drawOpponents(n)) {
+ return createMatch(['나'], n);
+}
+
+function createMatch(humanNames, botCount) {
+ const players = humanNames.map(name => ({name, score:0, last:0}));
+ for (const rosterId of drawOpponents(botCount, humanNames)) {
   players.push({rosterId, name:aiNames[rosterId - 1], score:0, last:0});
  }
  players.forEach(fresh);
@@ -176,5 +180,5 @@ function botAction(s,options={}){
  if(!move)throw Error('empty');
  return options.passes===false?simpleAction(piles,queue,Math.random):plannedAction(piles,queue,s.passed,s.players.length,Math.random);
 }
-const api={colors,aiNames,restoreRoster,fresh,create,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
+const api={colors,aiNames,restoreRoster,fresh,create,createMatch,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
 })(typeof window!=='undefined'?window:globalThis);
