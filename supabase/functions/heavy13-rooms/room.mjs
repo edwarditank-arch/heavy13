@@ -10,11 +10,16 @@ export function nickname(value) {
   requireThat(name.length > 0 && [...name].length <= 16 && !/[\p{C}<>]/u.test(name), '닉네임은 1~16자로 입력해 주세요.');
   return name;
 }
+function validateCapacity(capacity) {
+  requireThat(Number.isInteger(capacity) && capacity >= 2 && capacity <= 10, '총인원은 방장을 포함해 2~10명으로 정해 주세요.');
+}
 export function newRoom(name, identity, capacity) {
-  if (capacity !== undefined) {
-    requireThat(Number.isInteger(capacity) && capacity >= 2 && capacity <= 10, '총인원은 방장을 포함해 2~10명으로 정해 주세요.');
-  }
-  return { capacity, seats: [{name: nickname(name), identity}], game: null, pending: {}, closed: false };
+  if (capacity !== undefined) validateCapacity(capacity);
+  return { capacity, seats: [{name: nickname(name), identity}], waiting: [], game: null, pending: {}, closed: false };
+}
+function fillOpenSeats(room) {
+  const available = (room.capacity ?? 10) - room.seats.length;
+  if (available > 0 && room.waiting?.length) room.seats.push(...room.waiting.splice(0, available));
 }
 function appendChat(room, sender, text, nonce) {
   const history = room.chat ??= [];
@@ -32,7 +37,7 @@ function sendChat(room, seat, input) {
   appendChat(room, seat, text, input.nonce);
   return true;
 }
-export function view(G, room, id, revision) {
+export function view(G, room, id, revision, identity) {
   const g = room.game;
   const players = room.seats.map((s, i) => ({
     name: s.name, rosterId: s.rosterId ?? null, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
@@ -43,7 +48,12 @@ export function view(G, room, id, revision) {
   }));
   const out = { revision, gameRevision: room.gameRevision ?? revision, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
   if(spectator)out.spectator=true;else out.chat=chat;
-  if (!g) return out;
+  if (!g) {
+    const waiting = room.waiting ?? [];
+    out.waiting = waiting.map(person => person.name);
+    out.queuePosition = waiting.findIndex(person => person.identity === identity) + 1;
+    return out;
+  }
   Object.assign(out, {
     round: g.round, leader: g.leader, piles: g.piles,
     events: g.events, previous: g.log.find(l => l.round < g.round)?.events ?? []
@@ -85,15 +95,21 @@ export function apply(G, room, identity, input, revision) {
   const g = room.game;
   const action = input.action;
   requireThat(!room.closed, '종료된 방입니다.', 404);
+  const queued = room.waiting?.findIndex(s => s.identity === identity) ?? -1;
   if (action === 'join') {
-    if (id >= 0) return false;
-    requireThat(!g, '이미 게임이 시작된 방입니다.', 409);
-    requireThat(room.seats.length < (room.capacity ?? 10), '방이 가득 찼습니다.', 409);
+    if (id >= 0 || queued >= 0 || g || !input.name) return false;
     const name = nickname(input.name);
-    requireThat(!room.seats.some(s => s.name === name), '이 방에서 이미 사용 중인 닉네임입니다.', 409);
-    room.seats.push({name, identity});
+    const waiting = room.waiting ??= [];
+    requireThat(!room.seats.some(s => s.name === name) && !waiting.some(s => s.name === name), '이 방에서 이미 사용 중인 닉네임입니다.', 409);
+    waiting.push({name, identity});
+    fillOpenSeats(room);
     return true;
   }
+  if (action === 'leave' && queued >= 0) {
+    room.waiting.splice(queued, 1);
+    return true;
+  }
+  if (action === 'read' && (queued >= 0 || g)) return false;
   requireThat(id >= 0, '이 브라우저로 방에 다시 입장해 주세요.', 403);
   if (action === 'read') return false;
   if (action === 'chat') return sendChat(room, room.seats[id], input);
@@ -102,7 +118,18 @@ export function apply(G, room, identity, input, revision) {
   if (action === 'leave') {
     requireThat(!g, '게임 중에는 자리를 유지합니다.', 409);
     room.seats.splice(id,1);
+    fillOpenSeats(room);
     room.closed = !room.seats.length;
+    return true;
+  }
+  if (action === 'resize') {
+    requireThat(id === 0, '방장만 정원을 변경할 수 있습니다.', 403);
+    requireThat(!g, '게임 시작 전에만 정원을 변경할 수 있습니다.', 409);
+    validateCapacity(input.capacity);
+    requireThat(input.capacity >= room.seats.length, '참가 중인 플레이어 수보다 정원을 줄일 수 없습니다.', 409);
+    if (input.capacity === room.capacity) return false;
+    room.capacity = input.capacity;
+    fillOpenSeats(room);
     return true;
   }
   if (action === 'start' || action === 'rematch') {
@@ -114,6 +141,7 @@ export function apply(G, room, identity, input, revision) {
     room.game = G.createMatch(humans.map(seat => seat.name), size - humans.length);
     const bots = room.game.players.slice(humans.length).map(({name, rosterId}) => ({name, rosterId}));
     room.seats = humans.concat(bots);
+    room.waiting = [];
     room.pending = {};
     submitBots(G, room);
     return true;

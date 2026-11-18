@@ -51,10 +51,19 @@ Deno.serve(async req => {
       if(changed) {
         payload.gameRevision = b.action === 'chat' ? (payload.gameRevision ?? revision) : revision + 1;
         const saved=await db(code+'&revision=eq.'+revision+'&select=code','PATCH',{payload,revision:revision+1,expires_at:expiry()});
-        if(!saved.length) continue;
+        if(!saved.length) {
+          await new Promise(resolve=>setTimeout(resolve,Math.random()*Math.min(250,15*(attempt+1))));
+          continue;
+        }
         if(b.action==='leave') return reply({left:true});
-      } else if(b.action==='read' && b.revision===revision) return reply({unchanged:true});
-      return reply(view(G,payload,payload.seats.findIndex(p=>p.identity===identity),revision+Number(changed)));
+      }
+      const member=payload.seats.findIndex(p=>p.identity===identity);
+      const version=revision+Number(changed);
+      if(member<0 && !payload.game && b.action==='join' && !payload.waiting?.some(p=>p.identity===identity))
+        return reply({needsName:true});
+      const visibleVersion=member<0 && payload.game ? (payload.gameRevision ?? version) : version;
+      if(b.action==='read' && b.revision===visibleVersion) return reply({unchanged:true});
+      return reply(view(G,payload,member<0?null:member,visibleVersion,identity));
     }
     throw new RoomError('잠시 후 다시 시도해 주세요.',409);
   } catch(e) {

@@ -81,3 +81,14 @@ body:has(#soloDock:not([hidden])){padding-bottom:60px}
 .watchTools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 #exitWatch,.watchPractice{color:var(--accent);font-weight:700;text-decoration:none;}
 .watchPractice{display:block;text-align:center;padding:10px;font-size:14px;}
+.lobbyHeading,.lobbyCapacity {display:flex;align-items:center;gap:10px;}
+.lobbyHeading {justify-content:space-between;flex-wrap:wrap;margin-bottom:12px;}
+.lobbyHeading h2,.queuePanel h2 {margin:0;}
+.lobbyCapacity {font-size:13px;font-weight:700;}
+.lobbyCapacity select {font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:7px;}
+.queuePanel {margin-top:14px;}
+.queuePanel h2 span {font-size:15px;color:var(--accent);}
+.queuePanel ol {color:var(--ink);font:inherit;padding-left:24px;}
+.queuePanel li {margin:7px 0;overflow-wrap:anywhere;}
+.queuePanel small {color:var(--accent);}
+.queuePanel p {font-size:14px;line-height:1.65;margin:8px 0 0;}

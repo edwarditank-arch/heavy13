@@ -4,30 +4,29 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#202b40"><meta name="referrer" content="same-origin">
   <title>친구 대전 · 무거운 13</title>
-  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css"><link rel="stylesheet" href="/board.css">
-  <script defer src="/engine.js"></script><script defer src="/board.js"></script><script defer src="/chat-panel.js"></script><script defer src="/ai-watch.js"></script><script defer src="/friends.js"></script>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css?v=lobby2"><link rel="stylesheet" href="/board.css">
+  <script defer src="/engine.js"></script><script defer src="/board.js"></script><script defer src="/chat-panel.js"></script><script defer src="/ai-watch.js"></script><script defer src="/friends.js?v=lobby2"></script>
 </head>
 <body class="friends">
   <header><a class="brand" href="/"><span class="brandmark">13</span><span>무거운 13<small>HEAVY THIRTEEN</small></span></a>
     <nav><a href="/">AI 연습</a><button class="quiet" id="rulesOpen">게임 규칙</button></nav></header>
   <main>
     <section id="entry" class="entry">
-      <div class="entryTitle"><div class="heroAtlas" aria-hidden="true"></div><div class="eyebrow">HEAVY THIRTEEN</div><h1>친구 대전</h1><p>친구에게 방 코드를 보내세요. 시작할 때 남은 자리는 AI가 채웁니다.</p></div>
+      <div class="entryTitle"><div class="heroAtlas" aria-hidden="true"></div><div class="eyebrow">HEAVY THIRTEEN</div><h1>친구 대전</h1><p>친구에게 초대 링크를 보내세요. 정원이 차면 입장 순서대로 대기하고, 게임이 시작되면 같은 링크에서 관전할 수 있어요.</p></div>
       <form id="entryForm" class="entryForm">
         <label for="nickname">내 닉네임</label><input id="nickname" autocomplete="nickname" maxlength="16" required placeholder="게임에서 쓸 이름">
         <div id="roomSize"><label for="capacity">총 플레이 인원 · 방장 포함</label>
           <select id="capacity"><option value="2">2명</option><option value="3">3명</option><option value="4">4명</option><option value="5">5명</option><option value="6">6명</option><option value="7" selected>7명</option><option value="8">8명</option><option value="9">9명</option><option value="10">10명</option></select></div>
         <button class="primary" id="create" type="submit">새 방 만들기 <span>＋</span></button>
         <label for="roomCode">초대받은 방 코드</label><input id="roomCode" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="6" placeholder="6자리 코드">
-        <button class="secondary" id="join" type="submit">코드로 입장</button>
-        <button class="quiet" type="button" id="watchRoom">코드로 관전</button>
+        <button class="secondary" id="join" type="submit" formnovalidate>코드로 입장</button>
         <button class="quiet" type="button" hidden id="resume">이전 방으로 돌아가기</button>
       </form>
     </section>
     <div role="status" id="notice"></div>
     <section id="match" hidden>
       <div class="onlineHeading"><div><div class="eyebrow" id="modeLabel">친구 대전</div><h1 id="title">대기실</h1></div>
-        <div class="roomInfo" id="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button><button id="copyWatch" class="quiet">관전 링크 복사</button></div>
+        <div class="roomInfo" id="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button></div>
         <div class="watchTools" id="aiWatchTools" hidden><button id="pauseWatch" class="secondary">일시정지</button><button id="stepWatch" class="quiet" hidden>한 수 진행</button><button id="againWatch" class="primary" hidden>새 대전 관전</button></div>
         <a id="exitWatch" class="quiet" href="/friends.html" hidden>관전 나가기</a></div>
       <div id="board"></div>
