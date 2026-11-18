@@ -1,7 +1,45 @@
 (function(root){
 const colors=['red','green','blue'];
 function fresh(p){p.hand=[0,1,2,3,4,5,6];p.chips={red:2,green:2,blue:2,rainbow:1};}
-function create(n){let s={version:1,round:1,leader:Math.floor(Math.random()*(n+1)),piles:{red:[],green:[],blue:[]},players:Array.from({length:n+1},(_,i)=>({name:i?'AI '+String(i).padStart(2,'0'):'나',score:0,last:0})),phase:'select',queue:[],passed:[],events:[],clock:0,log:[]};s.players.forEach(fresh);return s;}
+const aiNames = Object.freeze(['화요리', '쿤쿤쿤', '졔졔', '선수', '예슬', '에스', '쌉티', '금쪽', '너콩', '아리', '유뇨', '패치', '제현', '코난', '너구리']);
+
+function drawOpponents(count) {
+ const pool = aiNames.map((_, index) => index + 1);
+ for (let i = pool.length - 1; i > 0; i--) {
+  const other = Math.floor(Math.random() * (i + 1));
+  [pool[i], pool[other]] = [pool[other], pool[i]];
+ }
+ return pool.slice(0, count);
+}
+
+function create(n) {
+ const players = [{name:'나', score:0, last:0}];
+ for (const rosterId of drawOpponents(n)) {
+  players.push({rosterId, name:aiNames[rosterId - 1], score:0, last:0});
+ }
+ players.forEach(fresh);
+ return {version:1, round:1, leader:Math.floor(Math.random()*players.length),
+  piles:{red:[],green:[],blue:[]}, players, phase:'select', queue:[], passed:[], events:[], clock:0, log:[]};
+}
+
+// Original saves identified an AI and its preferences by seat number.
+function restoreRoster(game) {
+ const hasLegacySeats = game.players.slice(1).some(player => !player.rosterId);
+ if (!hasLegacySeats) return;
+ const previousNames = game.players.map(player => player.name);
+ game.players.slice(1).forEach((player, index) => {
+  player.rosterId = index + 1;
+  player.name = aiNames[index];
+ });
+ const refreshEvent = event => {
+  const oldName = previousNames[event.id];
+  if (event.id > 0 && event.text?.startsWith(oldName + ' · ')) {
+   event.text = game.players[event.id].name + event.text.slice(oldName.length);
+  }
+ };
+ game.events.forEach(refreshEvent);
+ game.log.forEach(round => round.events.forEach(refreshEvent));
+}
 function sum(a){return a.reduce((a,b)=>a+b,0);}
 function order(moves,leader,n){return moves.slice().sort((a,b)=>(+(b.color==='rainbow')-+(a.color==='rainbow'))||b.value-a.value||((a.id-leader+n)%n)-((b.id-leader+n)%n));}
 function submit(s,moves){if(s.phase!=='select')throw Error('phase');if(moves.length!==s.players.length||new Set(moves.map(m=>m.id)).size!==moves.length)throw Error('moves');for(const m of moves){const p=s.players[m.id];if(!p||!p.hand.includes(m.value)||!p.chips[m.color])throw Error('illegal');}for(const m of moves){const p=s.players[m.id];p.hand.splice(p.hand.indexOf(m.value),1);p.chips[m.color]--;}
@@ -24,7 +62,7 @@ function defaultProfile(id){
  const presets=[[.35,.6,.65,.45],[.65,.45,.4,.65],[.4,.65,.6,.35],[.75,.35,.35,.7],[.8,.55,.25,.6],[.35,.4,.75,.4],[.6,.5,.45,.7],[.2,.5,.85,.25],[.5,.75,.5,.35]];
  const values=presets[id-1];return values?Object.fromEntries(['risk','variety','highCards','rainbow'].map((key,i)=>[key,values[i]])):normalizeProfile();
 }
-function profileFor(s,id,options){return options.profiles===false?normalizeProfile():normalizeProfile(s.aiProfiles?.[id]??defaultProfile(id));}
+function profileFor(s,id,options){return options.profiles===false?normalizeProfile():normalizeProfile(s.aiProfiles?.[id]??defaultProfile(s.players[id]?.rosterId ?? id));}
 function observe(s,id){
  const own=s.players[id],start=s.round<=7?1:8;
  const history=(s.log||[]).filter(r=>r.round>=start&&r.round<s.round).slice().sort((a,b)=>a.round-b.round);
@@ -138,5 +176,5 @@ function botAction(s,options={}){
  if(!move)throw Error('empty');
  return options.passes===false?simpleAction(piles,queue,Math.random):plannedAction(piles,queue,s.passed,s.players.length,Math.random);
 }
-const api={colors,fresh,create,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
+const api={colors,aiNames,restoreRoster,fresh,create,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
 })(typeof window!=='undefined'?window:globalThis);

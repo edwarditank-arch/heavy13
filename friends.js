@@ -83,7 +83,7 @@
       (s.phase==='lobby'?'':(s.phase==='select'?(p.submitted?'제출 완료':'선택 중')+' · ':'')+'<b>'+p.score+'점</b>')+'</li>').join('')+'</ul>';
   }
   function piles(s) {
-    return '<div class="piles">'+pileColors.map(c=>{const a=s.piles[c],sum=total(a);return '<div class="pile '+c+'"><div class="pileName">'+colors[c]+' 받침대</div><div class="pileScore">'+sum+'<small> / 13</small></div><div class="track"><span style="width:'+sum/13*100+'%"></span></div><div class="stones">'+a.map(n=>'<span class="stone">'+n+'</span>').join('')+'</div><div class="pileFoot">13 이상이면 벌점 +'+a.length+'</div></div>';}).join('')+'</div>';
+    return '<div class="piles">' + pileColors.map(color => HeavyBoard.pedestal(color, s.piles[color])).join('') + '</div>';
   }
   function hand(s) {
     return '<div class="handPanel"><div class="panelHeading"><h3>내 숫자 카드</h3><span>'+s.hand.length+'장 남음</span></div><div class="hand">'+
