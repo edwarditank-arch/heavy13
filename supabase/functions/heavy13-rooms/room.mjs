@@ -37,16 +37,18 @@ export function view(G, room, id, revision) {
   const players = room.seats.map((s, i) => ({
     name: s.name, rosterId: s.rosterId ?? null, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
   }));
-  const chat = (room.chat ?? []).map(({seq, name, author, bot, text, time}) => ({
+  const spectator = id === null;
+  const chat = spectator ? [] : (room.chat ?? []).map(({seq, name, author, bot, text, time}) => ({
     seq, name, bot, text, time, mine: author === room.seats[id]?.identity
   }));
-  const out = { revision, gameRevision: room.gameRevision ?? revision, chat, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
+  const out = { revision, gameRevision: room.gameRevision ?? revision, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
+  if(spectator)out.spectator=true;else out.chat=chat;
   if (!g) return out;
-  const me = g.players[id];
   Object.assign(out, {
-    round: g.round, leader: g.leader, piles: g.piles, hand: me.hand, chips: me.chips,
-    mine: room.pending[id] ?? null, events: g.events, previous: g.log.find(l => l.round < g.round)?.events ?? []
+    round: g.round, leader: g.leader, piles: g.piles,
+    events: g.events, previous: g.log.find(l => l.round < g.round)?.events ?? []
   });
+  if(!spectator)Object.assign(out,{hand:g.players[id].hand,chips:g.players[id].chips,mine:room.pending[id] ?? null});
   if (g.phase !== 'select') {
     const moves = g.phase === 'chips' ? g.moves : G.order(g.moves, g.roundLeader, players.length);
     out.moves = moves.map(m => g.phase === 'chips' ? {id: m.id, color: m.color} : m);

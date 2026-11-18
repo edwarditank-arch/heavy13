@@ -5,7 +5,7 @@
   <meta name="theme-color" content="#202b40"><meta name="referrer" content="same-origin">
   <title>친구 대전 · 무거운 13</title>
   <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css"><link rel="stylesheet" href="/board.css">
-  <script defer src="/engine.js"></script><script defer src="/board.js"></script><script defer src="/friends.js"></script>
+  <script defer src="/engine.js"></script><script defer src="/board.js"></script><script defer src="/chat-panel.js"></script><script defer src="/ai-watch.js"></script><script defer src="/friends.js"></script>
 </head>
 <body class="friends">
   <header><a class="brand" href="/"><span class="brandmark">13</span><span>무거운 13<small>HEAVY THIRTEEN</small></span></a>
@@ -20,30 +20,18 @@
         <button class="primary" id="create" type="submit">새 방 만들기 <span>＋</span></button>
         <label for="roomCode">초대받은 방 코드</label><input id="roomCode" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="6" placeholder="6자리 코드">
         <button class="secondary" id="join" type="submit">코드로 입장</button>
+        <button class="quiet" type="button" id="watchRoom">코드로 관전</button>
         <button class="quiet" type="button" hidden id="resume">이전 방으로 돌아가기</button>
       </form>
     </section>
     <div role="status" id="notice"></div>
     <section id="match" hidden>
-      <div class="onlineHeading"><div><div class="eyebrow">친구 대전</div><h1 id="title">대기실</h1></div>
-        <div class="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button></div></div>
+      <div class="onlineHeading"><div><div class="eyebrow" id="modeLabel">친구 대전</div><h1 id="title">대기실</h1></div>
+        <div class="roomInfo" id="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button><button id="copyWatch" class="quiet">관전 링크 복사</button></div>
+        <div class="watchTools" id="aiWatchTools" hidden><button id="pauseWatch" class="secondary">일시정지</button><button id="stepWatch" class="quiet" hidden>한 수 진행</button><button id="againWatch" class="primary" hidden>새 대전 관전</button></div>
+        <a id="exitWatch" class="quiet" href="/friends.html" hidden>관전 나가기</a></div>
       <div id="board"></div>
-      <div class="chatDock">
-        <section class="chatPanel" id="roomChat" hidden aria-labelledby="chatTitle">
-          <div class="chatHead"><div><h2 id="chatTitle">방 채팅</h2><small id="chatRoomName"></small></div>
-            <button type="button" id="chatClose" aria-label="방 채팅 닫기">닫기</button></div>
-          <div id="chatLog" role="log" aria-label="방 대화" aria-live="polite" aria-relevant="additions"></div>
-          <p id="chatEmpty">첫 메시지를 남겨 보세요.</p>
-          <form id="chatForm"><label class="chatSr" for="chatInput">채팅 메시지</label>
-            <input id="chatInput" maxlength="200" autocomplete="off" placeholder="메시지 쓰기…" required>
-            <button class="primary" id="chatSend" type="submit" disabled>보내기</button></form>
-          <div id="chatError" role="status"></div>
-        </section>
-        <button class="chatToggle" id="chatToggle" type="button" aria-controls="roomChat" aria-expanded="false">
-          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5.5 3v-3H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"/><path d="M7 9h10m-10 4h6"/></svg>
-          방 채팅 <span id="chatUnread" hidden></span>
-        </button>
-      </div>
+      <div class="chatDock" id="chatDock" hidden></div>
     </section>
   </main>
   <footer>데블스 플랜: 데드 어게인 · 감옥매치 비공식 연습 게임</footer>

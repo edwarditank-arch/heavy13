@@ -33,19 +33,24 @@
     if(data.unchanged || (state && data.revision<state.revision)) return;
     if(!state || data.round!==state.round || data.phase!==state.phase) selected={};
     const gameChanged=!state || (data.gameRevision ?? data.revision)!==(state.gameRevision ?? state.revision);
-    state=data; updateChat(data.chat ?? []); $('#entry').hidden=true; $('#match').hidden=false; $('#codeText').textContent=code;
+    state=data;
+    if(data.spectator)roomChat.reset();else roomChat.show(code,'방 '+code,data.chat ?? []);
+    $('#modeLabel').textContent=data.aiTable?'AI 대전 관전':data.spectator?'친구 대전 관전':'친구 대전';
+    $('#roomInfo').hidden=!!data.aiTable;
+    $('#copy').hidden=!!data.spectator;$('#exitWatch').hidden=!data.spectator;
+    $('#exitWatch').href=data.aiTable?'/':'/friends.html'; $('#entry').hidden=true; $('#match').hidden=false; $('#codeText').textContent=code;
     $('#title').textContent=data.phase==='lobby'?'대기실':data.phase==='finished'?'최종 순위':data.round+'라운드';
     if(gameChanged)render();
   }
   function schedule(ms=1900) {
     clearTimeout(timer);
-    if(state && !document.hidden) timer=setTimeout(sync,ms);
+    if(state && !state.aiTable && !document.hidden) timer=setTimeout(sync,ms);
   }
   async function sync() {
     if(!state || document.hidden || busy) return;
     const activeCode=code;
     try {
-      const data=await request('read');
+      const data=await request(state.spectator?'watch':'read');
       if(!state || activeCode!==code) return;
       if(disconnected) {say('');disconnected=false;}
       accept(data);
@@ -56,7 +61,7 @@
     } finally { schedule(disconnected?4000:1900); }
   }
   function toEntry() {
-    resetChat();clearTimeout(timer);state=null;code='';token='';selected={};disconnected=false;
+    roomChat.reset();clearTimeout(timer);state=null;code='';token='';selected={};disconnected=false;
     history.replaceState(null,'',location.pathname);$('#entry').hidden=false;$('#match').hidden=true;
     $('#resume').hidden=!read(recentKey);
   }
@@ -64,12 +69,17 @@
     if(busy)return;
     const name=$('#nickname').value.trim();
     if(!validCode.test(roomCode)){say('영문과 숫자로 된 6자리 방 코드를 입력해 주세요.');return;}
-    busy=true;code=roomCode;token=read(localKey(code)) || makeToken();write(localKey(code),token);
+    const watching=action==='watch';
+    busy=true;code=roomCode;token=watching?makeToken():read(localKey(code)) || makeToken();
+    if(!watching)write(localKey(code),token);
     const form=$('#entryForm');for(const el of form.elements)el.disabled=true;
     try {
       const data=await request(action,action==='create' ? {name,capacity:Number($('#capacity').value)} : {name});
-      if(name)write('heavy13.nickname',name);
-      write(recentKey,code);history.replaceState(null,'','?room='+code);
+      if(!watching){
+        if(name)write('heavy13.nickname',name);
+        write(recentKey,code);
+      }
+      history.replaceState(null,'','?room='+code+(watching?'&watch=1':''));
       say('');accept(data);
     } catch(e) {
       if(action==='read' && [403,404].includes(e.status) && read(recentKey)===roomCode)write(recentKey,'');
@@ -91,7 +101,7 @@
   }
   function playerList(s) {
     return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span'+(p.rosterId?' class="botName"':'')+'>'+(p.rosterId?botPortrait(p.rosterId):'')+esc(p.name)+traitBadge(p)+(p.rosterId?' <small>AI</small>':'')+(i===s.id?' <small>나</small>':'')+
-      (i===0?' <small>방장</small>':'')+(s.phase!=='lobby' && s.leader===i?' <small>선</small>':'')+'</span>'+
+      (i===0 && !s.aiTable?' <small>방장</small>':'')+(s.phase!=='lobby' && s.leader===i?' <small>선</small>':'')+'</span>'+
       (s.phase==='lobby'?'':(s.phase==='select'?(p.submitted?'제출 완료':'선택 중')+' · ':'')+'<b>'+p.score+'점</b>')+'</li>').join('')+'</ul>';
   }
   function piles(s) {
@@ -108,6 +118,11 @@
     return '<div class="moves">'+s.moves.map(m=>'<div class="move '+m.color+(s.turn?.id===m.id?' active':'')+'"><small>'+esc(s.players[m.id].name)+'</small><strong>'+(m.value??'?')+'</strong><span>'+colors[m.color]+'</span></div>').join('')+'</div>';
   }
   function stage(s) {
+    if(s.spectator){
+      const headings={select:'카드와 칩을 고르는 중',chips:'색깔 칩 공개',cards:'숫자 카드 공개',
+        roundEnd:s.round+'라운드 종료',resolve:s.turn?esc(s.players[s.turn.id].name)+'님의 배치 차례':''};
+      return '<div class="phaseTitle">'+headings[s.phase]+'</div>'+moves(s);
+    }
     if(s.phase==='select')return s.mine?'<div class="phaseTitle">선택을 확정했습니다</div><p>내 선택은 '+s.mine.value+' · '+colors[s.mine.color]+'입니다. 다른 참가자의 제출을 기다립니다.</p>':'<div class="phaseTitle">카드 한 장과 칩 한 개를 고르세요.</div><p>모두가 확정하면 색깔 칩부터 공개합니다.</p>';
     if(s.phase==='chips'||s.phase==='cards')return '<div class="phaseTitle">'+(s.phase==='chips'?'색깔 칩 공개':'배치 순서')+'</div>'+moves(s)+btn('advance',s.phase==='chips'?'숫자 공개':'배치 시작');
     if(s.phase==='roundEnd')return '<div class="phaseTitle">'+s.round+'라운드 종료</div><p>다음 선 플레이어 · '+esc(s.players[s.leader].name)+'</p>'+btn('advance',(s.round+1)+'라운드 시작');
@@ -132,22 +147,22 @@
         : s.capacity ? '전원이 모였습니다.' : '두 명부터 시작할 수 있습니다.';
       content='<div class="lobby"><h2>참가자 '+humans+' / '+size+'명</h2>'+playerList(s)+'<p>'+summary+'</p><div class="controls">'+
         (s.id===0?btn('start','친구 대전 시작','primary',!s.capacity && humans<2):'방장의 시작을 기다립니다.')+
-        btn('leave','대기실 나가기','quiet')+'</div></div>';
+        (s.spectator?'':btn('leave','대기실 나가기','quiet'))+'</div></div>';
     } else if(s.phase==='finished'){
       let rank=0;
       content='<div class="lobby">'+s.ranking.map((p,i,all)=>{if(!i||p.score!==all[i-1].score||p.last!==all[i-1].last)rank=i+1;
         return '<div class="rankLine"><strong>'+rank+'위</strong>'+esc(s.players[p.id].name)+traitBadge(s.players[p.id])+(p.id===s.id?' · 나':'')+'<b>'+p.score+'점</b></div>';}).join('')+
-        '<div class="controls">'+(s.id===0?btn('rematch',s.players.some(p=>p.rosterId)?'AI 재추첨하고 다시 하기':'같은 멤버로 다시 하기'):'방장이 재대결을 시작할 수 있습니다.')+btn('home','다른 방으로','quiet')+'</div></div>';
+        '<div class="controls">'+(s.spectator?'':s.id===0?btn('rematch',s.players.some(p=>p.rosterId)?'AI 재추첨하고 다시 하기':'같은 멤버로 다시 하기'):'방장이 재대결을 시작할 수 있습니다.')+(s.spectator?'':btn('home','다른 방으로','quiet'))+'</div></div>';
     } else {
       const logs=[...s.events].reverse().concat([...s.previous].reverse());
       content='<div class="layout"><section><div class="table"><div class="tableTop">라운드 '+s.round+' / 14 <span class="badge">선 · '+esc(s.players[s.leader].name)+'</span></div>'+piles(s)+'<div class="stage">'+stage(s)+'</div></div>'+
-        (s.phase==='select'&&!s.mine?hand(s):'')+'</section><aside><div class="sidepanel"><h3>플레이어 / 벌점</h3>'+playerList(s)+'</div><div class="sidepanel"><h3>최근 배치</h3><div class="log">'+(logs.length?logs.map(e=>'<p>'+esc(e.text)+'</p>').join(''):'아직 배치한 바위가 없습니다.')+'</div></div></aside></div>';
+        (s.phase==='select'&&!s.spectator&&!s.mine?hand(s):'')+'</section><aside><div class="sidepanel"><h3>플레이어 / 벌점</h3>'+playerList(s)+'</div><div class="sidepanel"><h3>최근 배치</h3><div class="log">'+(logs.length?logs.map(e=>'<p>'+esc(e.text)+'</p>').join(''):'아직 배치한 바위가 없습니다.')+'</div></div></aside></div>';
     }
     $('#board').innerHTML=content;
     if(busy)$('#board').querySelectorAll('button').forEach(b=>{b.disabled=true;});
   }
   async function act(action) {
-    if(busy||!state)return;
+    if(busy||!state||state.spectator)return;
     if(action==='home'){toEntry();say('');return;}
     const extra={...selected};busy=true;clearTimeout(timer);render();say('');
     try {
@@ -165,96 +180,49 @@
     if(b.dataset.target)selected.target=b.dataset.target;
     render();
   });
-  const chatPanel=$('#roomChat'), chatLog=$('#chatLog'), chatInput=$('#chatInput'), chatToggle=$('#chatToggle');
-  let lastMessage=0, readThrough=0, chatRoom='', pendingChat=null, sending=false, chatEpoch=0;
-  const clockFormat=new Intl.DateTimeFormat('ko-KR',{hour:'2-digit',minute:'2-digit'});
-  function chatElement(tag, className, text) {
-    const el=document.createElement(tag);
-    el.className=className; el.textContent=text; return el;
-  }
-  function addMessage(m) {
-    const row=document.createElement('div'); row.className='chatMessage'+(m.mine?' mine':'');
-    row.dataset.seq=m.seq;
-    const meta=chatElement('div','chatMeta','');
-    meta.append(chatElement('strong','',m.name));
-    const trait=traitFor(m.name);
-    if(trait)meta.append(chatElement('span','traitBadge',trait));
-    if(m.bot)meta.append(chatElement('small','chatAi','AI'));
-    if(m.mine)meta.append(chatElement('small','','나'));
-    meta.append(chatElement('time','',clockFormat.format(m.time)));
-    row.append(meta,chatElement('p','chatBubble',m.text));
-    chatLog.append(row);
-  }
-  function updateChat(messages) {
-    if(chatRoom!==code) {
-      chatRoom=code; readThrough=Number(read('heavy13.chatRead.'+code)) || 0;
-      $('#chatRoomName').textContent='방 '+code;
-    }
-    const tail=messages.at(-1)?.seq ?? 0;
-    if(tail!==lastMessage){
-      const follow=chatLog.scrollHeight-chatLog.clientHeight-chatLog.scrollTop<36;
-      for(const m of messages)if(m.seq>lastMessage)addMessage(m);
-      while(chatLog.firstChild && Number(chatLog.firstChild.dataset.seq)<messages[0]?.seq)chatLog.firstChild.remove();
-      lastMessage=tail;
-      if(follow || messages.at(-1)?.mine)chatLog.scrollTop=chatLog.scrollHeight;
-    }
-    $('#chatEmpty').hidden=messages.length!==0;
-    if(!chatPanel.hidden && tail>readThrough) {
-      readThrough=tail; write('heavy13.chatRead.'+code,String(tail));
-    }
-    const unread=messages.filter(m=>m.seq>readThrough && !m.mine).length;
-    const badge=$('#chatUnread');badge.hidden=!unread;badge.textContent=String(unread);
-    chatToggle.setAttribute('aria-label',unread?'방 채팅, 안 읽은 메시지 '+unread+'개':'방 채팅');
-  }
-  function setChatOpen(open) {
-    chatPanel.hidden=!open; chatToggle.setAttribute('aria-expanded',String(open));
-    if(open){
-      updateChat(state?.chat ?? []);chatLog.scrollTop=chatLog.scrollHeight;
-      if(window.matchMedia('(pointer:fine)').matches)chatInput.focus({preventScroll:true});
-    }else chatToggle.focus({preventScroll:true});
-  }
-  function resetChat() {
-    chatEpoch++; pendingChat=null;sending=false;chatRoom='';lastMessage=readThrough=0;
-    chatPanel.hidden=true;chatToggle.setAttribute('aria-expanded','false');
-    chatLog.replaceChildren();chatInput.value='';$('#chatError').textContent='';
-    $('#chatSend').disabled=true;
-  }
-  chatToggle.onclick=()=>setChatOpen(chatPanel.hidden);
-  $('#chatClose').onclick=()=>setChatOpen(false);
-  chatPanel.addEventListener('keydown',e=>{if(e.key==='Escape' && !e.isComposing)setChatOpen(false);});
-  chatInput.addEventListener('input',()=>{$('#chatSend').disabled=sending || !chatInput.value.trim();});
-  chatInput.addEventListener('keydown',e=>{if(e.key==='Enter' && (e.isComposing || e.keyCode===229))e.preventDefault();});
-  $('#chatForm').addEventListener('submit',async e=>{
-    e.preventDefault();
-    const text=chatInput.value.trim(), epoch=chatEpoch;
-    if(!text || !state || sending)return;
-    if(!pendingChat || pendingChat.text!==text)pendingChat={text,nonce:makeToken().slice(0,32)};
-    sending=true;$('#chatSend').disabled=true;$('#chatError').textContent='';
-    try {
-      const data=await request('chat',pendingChat);
-      if(epoch!==chatEpoch)return;
-      accept(data);pendingChat=null;
-      if(chatInput.value.trim()===text)chatInput.value='';
-    } catch(error){
-      if(epoch===chatEpoch)$('#chatError').textContent=error.status?error.message:'연결이 끊겼어요. 다시 보내기를 눌러 주세요.';
-    } finally {
-      if(epoch===chatEpoch){sending=false;$('#chatSend').disabled=!chatInput.value.trim();}
+  const roomChat=HeavyChat.mount($('#chatDock'),{
+    label:'방 채팅',readThrough:key=>read('heavy13.chatRead.'+key),
+    markRead:(key,seq)=>write('heavy13.chatRead.'+key,String(seq)),
+    send:async message=>{
+      const activeCode=code, data=await request('chat',message);
+      if(activeCode===code && state && !state.spectator)accept(data);
     }
   });
+  $('#watchRoom').onclick=()=>enter('watch',$('#roomCode').value.trim().toUpperCase());
   $('#entryForm').addEventListener('submit',e=>{
     e.preventDefault();const join=$('#create').hidden||e.submitter?.id==='join'||(!e.submitter&&$('#roomCode').value);
     enter(join?'join':'create',join?$('#roomCode').value.trim().toUpperCase():makeCode());
   });
   $('#roomCode').addEventListener('input',e=>{e.target.value=e.target.value.trim().toUpperCase();});
   $('#resume').onclick=()=>enter('read',read(recentKey));
-  $('#copy').onclick=async()=>{const link=new URL(location.pathname,location.origin);link.searchParams.set('room',code);
-    try{await navigator.clipboard.writeText(link.href);say('초대 링크를 복사했습니다. 친구에게 보내세요.');}catch{say('초대 링크: '+link.href);}};
+  async function copyInvite(watch){
+    const link=new URL(location.pathname,location.origin);link.searchParams.set('room',code);
+    if(watch)link.searchParams.set('watch','1');
+    try{await navigator.clipboard.writeText(link.href);say(watch?'관전 링크를 복사했습니다.':'초대 링크를 복사했습니다. 친구에게 보내세요.');}
+    catch{say((watch?'관전 링크: ':'초대 링크: ')+link.href);}
+  }
+  $('#copy').onclick=()=>copyInvite(false);
+  $('#copyWatch').onclick=()=>copyInvite(true);
   $('#rulesOpen').onclick=()=>$('#help').showModal();$('#closeHelp').onclick=()=>$('#help').close();
   document.addEventListener('visibilitychange',()=>schedule(0));window.addEventListener('online',()=>schedule(0));
   $('#nickname').value=read('heavy13.nickname')||'';$('#resume').hidden=!read(recentKey);
-  if(validCode.test(inviteCode)){
+  const query=new URLSearchParams(location.search);
+  if(query.get('mode')==='ai'){
+    const watch=AIWatch.create(accept);
+    $('#aiWatchTools').hidden=false;
+    function watchControls(){
+      const ended=state?.phase==='finished';
+      $('#pauseWatch').hidden=ended;$('#pauseWatch').textContent=watch.paused()?'계속 보기':'일시정지';
+      $('#stepWatch').hidden=ended || !watch.paused();$('#againWatch').hidden=!ended;
+    }
+    $('#pauseWatch').onclick=()=>{watch.toggle();watchControls();};
+    $('#stepWatch').onclick=()=>{watch.step();watchControls();};
+    $('#againWatch').onclick=()=>{watch.restart();watchControls();};
+    watch.start(watchControls);
+  }else if(validCode.test(inviteCode)){
     $('#roomCode').value=inviteCode;
-    if(read(localKey(inviteCode)))enter('read',inviteCode);
+    if(query.get('watch')==='1')enter('watch',inviteCode);
+    else if(read(localKey(inviteCode)))enter('read',inviteCode);
     else {$('#join').textContent='초대받은 방에 입장';$('#create').hidden=true;$('#roomSize').hidden=true;$('#join').className='primary';}
   }
 })();

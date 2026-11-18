@@ -36,6 +36,12 @@ Deno.serve(async req => {
       const rows=await db(code+'&expires_at=gt.'+now+'&select=revision,payload');
       if(!rows.length) throw new RoomError('방을 찾을 수 없습니다. 방 코드를 확인해 주세요.',404);
       const {payload,revision}=rows[0];
+      if(b.action==='watch'){
+        if(payload.closed)throw new RoomError('종료된 방입니다.',404);
+        const publicRevision=payload.gameRevision ?? revision;
+        if(b.revision===publicRevision)return reply({unchanged:true});
+        return reply(view(G,payload,null,publicRevision));
+      }
       const seat=payload.seats.findIndex(p=>p.identity===identity);
       if(b.action==='create') {
         if(seat!==0 || payload.closed) throw new RoomError('방 코드가 겹쳤습니다. 다시 시도해 주세요.',409);

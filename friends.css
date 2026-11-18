@@ -75,3 +75,9 @@ header nav {align-items:center;}
 #chatError:not(:empty) {padding:0 12px 8px;font-size:12px;color:#912e20;}
 .chatSr {position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;}
 @media(max-width:520px){.chatDock{right:10px;bottom:max(9px,env(safe-area-inset-bottom));}.chatPanel{width:min(350px,calc(100vw - 20px));}.chatToggle{padding:9px 13px;}}
+
+.chatDock[hidden],.chatDock [hidden]{display:none!important}
+body:has(#soloDock:not([hidden])){padding-bottom:60px}
+.watchTools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#exitWatch,.watchPractice{color:var(--accent);font-weight:700;text-decoration:none;}
+.watchPractice{display:block;text-align:center;padding:10px;font-size:14px;}
