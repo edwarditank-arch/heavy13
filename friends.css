@@ -1,0 +1,41 @@
+.friends [hidden] { display:none!important; }
+.friends nav { align-items:center; }
+.friends nav a, .friendMode { color:var(--accent); text-decoration:none; font-weight:700; }
+.friends nav a { font-size:13px; padding:8px; }
+.entry { display:grid; grid-template-columns:1fr 1fr; max-width:780px; margin:6vh auto; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--paper); }
+.entryTitle { background:#202b40; color:#fff8ef; padding:clamp(25px,4vw,46px); }
+.entryTitle .eyebrow {color:#ffc3a7;}
+.entryTitle p { line-height:1.8; color:#d8dce4; }
+.entryForm { display:grid; gap:11px; padding:28px; }
+.entryForm label { font-weight:700; }
+.entryForm label:not(:first-child) { margin-top:14px; }
+.entryForm input { width:100%; min-width:0; border:1px solid #999a9d; border-radius:5px; font:inherit; padding:12px; background:#fffefa; color:var(--ink); }
+#roomCode {text-transform:uppercase;letter-spacing:.12em;}
+#notice:not(:empty) { padding:10px 14px; margin:0 0 16px; border-left:3px solid var(--accent); background:var(--paper); color:var(--ink); }
+.onlineHeading,.roomInfo,.onlinePlayers li {display:flex;align-items:center;gap:12px;}
+.onlineHeading,.onlinePlayers li { justify-content:space-between; }
+.onlineHeading { flex-wrap:wrap; margin:0 0 18px; }
+.onlineHeading h1 { margin:0; }
+.roomInfo { flex-wrap:wrap; font-size:12px; }
+.roomInfo strong { font:700 25px var(--figures);letter-spacing:.07em; }
+.onlinePlayers {list-style:none; padding:0; margin:0;}
+.onlinePlayers li {border-top:1px solid var(--line); padding:10px 0; font-size:14px;}
+.onlinePlayers small { color:var(--accent); }
+.onlinePlayers b { font-family:var(--figures);font-size:20px; }
+.friends .sidepanel {margin-bottom:12px;}
+.friends .stage p {line-height:1.6;}
+.friends .moves {gap:5px;}.friends .move {min-width:60px;}
+.friends .move strong {display:block;}.friends .move span {margin:0;}
+.friends .handPanel .primary,.friends .stage .primary {display:inline-flex; margin-top:14px;}
+.friends .stage .controls .primary {margin:0;}
+.friends .lobby { background:var(--paper);padding:22px;border-radius:10px;border:1px solid var(--line);max-width:680px;}
+.friends .lobby .controls {align-items:center;}
+.friends .rankLine {display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);}
+.friends .rankLine b {margin-left:auto;}
+.friends .rankLine strong {font:700 24px var(--figures);}
+@media(max-width:720px){.entry {grid-template-columns:1fr;margin:12px auto;}.entryTitle,.entryForm {padding:20px;}.friends .layout aside{display:block}.roomInfo {gap:8px;}.roomInfo button{padding:8px;}}
+
+.friendsLink,.friendsStart {display:inline-flex;align-items:center;color:var(--accent);text-decoration:none;font-weight:700;}
+.friendsLink {font-size:12px;padding:8px;}
+.friendsStart {box-sizing:border-box;justify-content:space-between;width:100%;padding:13px 18px;border-radius:6px;background:var(--ink);color:#fff;margin:0 0 9px;}
+header nav {align-items:center;}
