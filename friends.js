@@ -9,6 +9,8 @@
   const inviteCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
   const recentKey = 'heavy13.recentRoom';
   let code = '', token = '', state = null, busy = false, timer, selected = {}, disconnected = false;
+  let catchUp = false;
+  const playback = RoomPlayback.create(render,()=>render());
   const localKey = c => 'heavy13.seat.' + c;
   const mem = new Map();
   function read(key) { try { return localStorage.getItem(key) || mem.get(key); } catch { return mem.get(key); } }
@@ -30,7 +32,9 @@
     return data;
   }
   function accept(data) {
-    if(data.unchanged || (state && data.revision<state.revision)) return;
+    if(data.unchanged){if(!document.hidden)catchUp=false;return;}
+    if(state && data.revision<state.revision) return;
+    const previous=state;
     if(!state || data.round!==state.round || data.phase!==state.phase) selected={};
     const gameChanged=!state || (data.gameRevision ?? data.revision)!==(state.gameRevision ?? state.revision);
     if(state?.queuePosition && !data.queuePosition)
@@ -41,8 +45,11 @@
     $('#roomInfo').hidden=!!data.aiTable;
     $('#exitWatch').hidden=!data.spectator || !!data.queuePosition;
     $('#exitWatch').href=data.aiTable?'/':'/friends.html'; $('#entry').hidden=true; $('#match').hidden=false; $('#codeText').textContent=code;
-    $('#title').textContent=data.phase==='lobby'?'대기실':data.phase==='finished'?'최종 순위':data.round+'라운드';
-    if(gameChanged)render();
+    if(gameChanged){
+      playback.update(previous,data,catchUp || document.hidden);
+      render();
+    }
+    if(!document.hidden)catchUp=false;
   }
   function schedule(ms=1900) {
     clearTimeout(timer);
@@ -59,10 +66,11 @@
     } catch(e) {
       if(activeCode!==code || !state) return;
       if([403,404].includes(e.status)) { toEntry();say(e.message);return; }
-      disconnected=true;say('연결을 확인하고 있습니다. 잠시 후 자동으로 다시 연결합니다.');
+      disconnected=true;catchUp=true;say('연결을 확인하고 있습니다. 잠시 후 자동으로 다시 연결합니다.');
     } finally { schedule(disconnected?4000:1900); }
   }
   function toEntry() {
+    playback.cancel();catchUp=false;
     roomChat.reset();clearTimeout(timer);state=null;code='';token='';selected={};disconnected=false;
     history.replaceState(null,'',location.pathname);$('#entry').hidden=false;$('#match').hidden=true;
     $('#resume').hidden=!read(recentKey);
@@ -111,8 +119,9 @@
       (i===0 && !s.aiTable?' <small>방장</small>':'')+(s.phase!=='lobby' && s.leader===i?' <small>선</small>':'')+'</span>'+
       (s.phase==='lobby'?'':(s.phase==='select'?(p.submitted?'제출 완료':'선택 중')+' · ':'')+'<b>'+p.score+'점</b>')+'</li>').join('')+'</ul>';
   }
-  function piles(s) {
-    return '<div class="piles">' + pileColors.map(color => HeavyBoard.pedestal(color, s.piles[color])).join('') + '</div>';
+  function piles(s,event,landed) {
+    return '<div class="piles">' + pileColors.map(color => HeavyBoard.pedestal(color,s.piles[color],
+      event?.color===color,landed && event?.color===color && event.points>0)).join('') + '</div>';
   }
   function hand(s) {
     return '<div class="handPanel"><div class="panelHeading"><h3>내 숫자 카드</h3><span>'+s.hand.length+'장 남음</span></div><div class="hand">'+
@@ -122,9 +131,13 @@
   }
   function moves(s) {
     if(!s.moves)return '';
-    return '<div class="moves">'+s.moves.map(m=>'<div class="move '+m.color+(s.turn?.id===m.id?' active':'')+'"><small>'+esc(s.players[m.id].name)+'</small><strong>'+(m.value??'?')+'</strong><span>'+colors[m.color]+'</span></div>').join('')+'</div>';
+    return '<div class="moves">'+s.moves.map(m=>'<div data-player="'+m.id+'" class="move '+m.color+(s.turn?.id===m.id?' active':'')+'"><small>'+esc(s.players[m.id].name)+'</small><strong>'+(m.value??'?')+'</strong><span>'+colors[m.color]+'</span></div>').join('')+'</div>';
   }
-  function stage(s) {
+  function stage(s,event,landed) {
+    if(event){
+      const label=event.type==='pass'?'패스':colors[event.color]+' '+event.value+' 배치'+(landed && event.points?' · 벌점 +'+event.points:'');
+      return '<div class="phaseTitle">'+esc(s.players[event.id].name)+' · '+label+'</div>'+moves(s);
+    }
     if(s.spectator){
       const headings={select:'카드와 칩을 고르는 중',chips:'색깔 칩 공개',cards:'숫자 카드 공개',
         roundEnd:s.round+'라운드 종료',resolve:s.turn?esc(s.players[s.turn.id].name)+'님의 배치 차례':''};
@@ -166,8 +179,9 @@
       playerList(s)+'<p>'+summary+'</p><div class="controls">'+controls+'</div></section>'+
       '<section class="lobby queuePanel"><h2>대기 명단 <span>'+waiting.length+'명</span></h2>'+list+'<p>'+queueNote+'</p></section>';
   }
-  function render() {
-    const s=state;if(!s)return;
+  function render(s=state,event=null,landed=false) {
+    if(!s || (!event && playback.active()))return;
+    $('#title').textContent=s.phase==='lobby'?'대기실':s.phase==='finished'?'최종 순위':s.round+'라운드';
     let content;
     if(s.phase==='lobby'){
       content=lobby(s);
@@ -178,14 +192,14 @@
         '<div class="controls">'+(s.spectator?'':s.id===0?btn('rematch',s.players.some(p=>p.rosterId)?'AI 재추첨하고 다시 하기':'같은 멤버로 다시 하기'):'방장이 재대결을 시작할 수 있습니다.')+(s.spectator?'':btn('home','다른 방으로','quiet'))+'</div></div>';
     } else {
       const logs=[...s.events].reverse().concat([...s.previous].reverse());
-      content='<div class="layout"><section><div class="table"><div class="tableTop">라운드 '+s.round+' / 14 <span class="badge">선 · '+esc(s.players[s.leader].name)+'</span></div>'+piles(s)+'<div class="stage">'+stage(s)+'</div></div>'+
+      content='<div class="layout"><section><div class="table"><div class="tableTop">라운드 '+s.round+' / 14 <span class="badge">선 · '+esc(s.players[s.leader].name)+'</span></div>'+piles(s,event,landed)+'<div class="stage">'+stage(s,event,landed)+'</div></div>'+
         (s.phase==='select'&&!s.spectator&&!s.mine?hand(s):'')+'</section><aside><div class="sidepanel"><h3>플레이어 / 벌점</h3>'+playerList(s)+'</div><div class="sidepanel"><h3>최근 배치</h3><div class="log">'+(logs.length?logs.map(e=>'<p>'+esc(e.text)+'</p>').join(''):'아직 배치한 바위가 없습니다.')+'</div></div></aside></div>';
     }
     $('#board').innerHTML=content;
     if(busy)$('#board').querySelectorAll('button,select').forEach(b=>{b.disabled=true;});
   }
   async function act(action,details={}) {
-    if(busy||!state||(state.spectator && !(action==='leave' && state.queuePosition)))return;
+    if(busy||playback.active()||!state||(state.spectator && !(action==='leave' && state.queuePosition)))return;
     if(action==='home'){toEntry();say('');return;}
     const extra={...selected,...details};busy=true;clearTimeout(timer);render();say('');
     try {
@@ -227,7 +241,11 @@
   }
   $('#copy').onclick=copyInvite;
   $('#rulesOpen').onclick=()=>$('#help').showModal();$('#closeHelp').onclick=()=>$('#help').close();
-  document.addEventListener('visibilitychange',()=>schedule(0));window.addEventListener('online',()=>schedule(0));
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){catchUp=true;playback.cancel();render();}
+    schedule(0);
+  });
+  window.addEventListener('online',()=>schedule(0));
   $('#nickname').value=read('heavy13.nickname')||'';$('#resume').hidden=!read(recentKey);
   const query=new URLSearchParams(location.search);
   if(query.get('mode')==='ai'){

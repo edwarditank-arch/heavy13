@@ -121,12 +121,7 @@ async function tableReady(run){
  while(livePlayback(run)&&(document.hidden||document.querySelector('dialog[open]')))await pause(100);
  return livePlayback(run);
 }
-async function motion(run,element,frames,duration){
- if(!element||typeof element.animate!=='function'){await pause(duration);return;}
- let animation;
- try{animation=element.animate(frames,{duration,easing:'ease-in-out',fill:'forwards'});run.animations.add(animation);await animation.finished;}catch(e){/* A cancelled or unavailable visual effect must not change game rules. */}
- finally{if(animation){run.animations.delete(animation);animation.cancel();}}
-}
+const motion=HeavyBoard.motion;
 async function animateAction(run,action){
  if(!await tableReady(run)||!livePlayback(run))return false;
  const move={...G.current(state)},color=move.color==='rainbow'?action.color:move.color;
@@ -139,27 +134,7 @@ async function animateAction(run,action){
   await motion(run,source,short?[{opacity:1},{opacity:.55}]:[{transform:'translateX(0)',opacity:1},{transform:'translateX(10px)',opacity:.45},{transform:'translateX(0)',opacity:.65}],short?180:420);
  }else{
   const pile=document.querySelector('.pile[data-pile="'+color+'"]'),stones=pile?.querySelector('.stones');
-  const origin=source?.querySelector('strong')?.getBoundingClientRect();
-  let slot;
-  if(stones){
-   const empty=stones.querySelector('.empty');if(empty)empty.hidden=true;
-   slot=document.createElement('span');slot.className='stone arrivalSlot';slot.textContent=move.value;slot.setAttribute('aria-hidden','true');stones.appendChild(slot);run.floating.add(slot);
-  }
-  const destination=(points?stones?.querySelector('.stone'):slot)?.getBoundingClientRect();
-  if(origin&&destination){
-   const stone=document.createElement('div');stone.className='flyingStone '+color;stone.textContent=move.value;stone.setAttribute('aria-hidden','true');
-   const x=origin.left+origin.width/2-20,y=origin.top+origin.height/2-20;
-   stone.style.left=x+'px';stone.style.top=y+'px';document.body.appendChild(stone);run.floating.add(stone);
-   const dx=destination.left+destination.width/2-20-x,dy=destination.top+destination.height/2-20-y;
-   run.flying=true;
-   await motion(run,stone,short?[{opacity:0},{opacity:1}]:[
-    {transform:'translate(0,0) scale(1)',opacity:1},
-    {transform:'translate('+dx*.5+'px,'+(dy*.5-65)+'px) scale(1.25)',offset:.5,opacity:1},
-    {transform:'translate('+dx+'px,'+dy+'px) scale(.65)',opacity:1}
-   ],short?100:680);
-   run.flying=false;stone.remove();run.floating.delete(stone);
-  }else await pause(short?100:680);
-  if(slot){slot.remove();run.floating.delete(slot);}
+  await HeavyBoard.flyStone(run,{id:move.id,value:move.value,color,points},short);
   if(!await tableReady(run)||!livePlayback(run))return false;
   if(points)await motion(run,stones,short?[{opacity:1},{opacity:.3}]:[{transform:'translateY(0)',opacity:1},{transform:'translateY(14px)',opacity:0}],short?100:220);
  }
