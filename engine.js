@@ -115,11 +115,24 @@ function observe(s,id){
 function compactPiles(piles){return Object.fromEntries(colors.map(c=>[c,{total:sum(piles[c]),count:piles[c].length}]));}
 function copyPiles(piles){return Object.fromEntries(colors.map(c=>[c,{...piles[c]}]));}
 function penalty(piles,color,value){const p=piles[color];return p.total+value>=13?p.count:0;}
+function targetsFor(move){return move.color==='rainbow'?colors:[move.color];}
+function boardPenalty(piles,move){
+ return Math.min(...targetsFor(move).map(color=>penalty(piles,color,move.value)));
+}
+function safeAfterPass(piles,queue){
+ const [move,...later]=queue;
+ if(move.value===0)return true;
+ // Later passers return before us. Earlier passers return after us.
+ return targetsFor(move).some(color=>{
+  const incoming=later.reduce((total,m)=>total+(m.color===color||m.color==='rainbow'?m.value:0),0);
+  return piles[color].total+incoming+move.value<13;
+ });
+}
 function put(piles,color,value){const points=penalty(piles,color,value),p=piles[color];if(p.total+value>=13){p.total=value;p.count=1;}else{p.total+=value;p.count++;}return points;}
 function seededRandom(seed){return()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
 function weightedIndex(weights,random){let target=random()*weights.reduce((a,b)=>a+b,0);for(let i=0;i<weights.length;i++){target-=weights[i];if(target<0)return i;}return weights.length-1;}
 function bestTarget(piles,move,random){
- const opts=move.color==='rainbow'?colors:[move.color];let best=Infinity,choices=[];
+ const opts=targetsFor(move);let best=Infinity,choices=[];
  for(const color of opts){const cost=penalty(piles,color,move.value)*100+piles[color].total;if(cost<best){best=cost;choices=[color];}else if(cost===best)choices.push(color);}
  return choices[Math.floor(random()*choices.length)];
 }
@@ -152,7 +165,7 @@ function plannedAction(piles,queue,passed,count,random){
  const result=runQueue(piles,queue,passed,count,random,false,{pass:true,color});
  return {pass:result.points[move.id]<now,color};
 }
-function sampleOpponent(opponent,piles,count,random){
+function sampleOpponent(opponent,piles,count,random,explore){
  const chips=opponent.chipOptions[Math.floor(random()*opponent.chipOptions.length)],candidates=[],weights=[];
  // Mix cautious and exploratory opponents instead of assuming equal color traffic.
  const temperature=.45+random()*.9;
@@ -165,6 +178,7 @@ function sampleOpponent(opponent,piles,count,random){
   const cost=risk+(color==='rainbow'?.3:0)-value*.055;
   candidates.push({id:opponent.id,value,color});weights.push(Math.exp(-cost/temperature));
  }
+ if(explore)return candidates[Math.floor(random()*candidates.length)];
  return candidates[weightedIndex(weights,random)];
 }
 function remainingCost(hand,chips,move,piles,profile){
@@ -181,15 +195,22 @@ function remainingCost(hand,chips,move,piles,profile){
  return .22*risk/units+.12*concentration*high-reserve;
 }
 function choose(s,id,options={}){
- const view=observe(s,id),profile=profileFor(s,id,options),piles=compactPiles(view.piles),candidates=[];
- for(const value of view.hand)for(const color of chipColors)if(view.chips[color])candidates.push({id,value,color});
+ const view=observe(s,id),profile=profileFor(s,id,options),piles=compactPiles(view.piles),legal=[];
+ for(const value of view.hand)for(const color of chipColors)if(view.chips[color])legal.push({id,value,color});
+ // Never commit to an overloaded pedestal on the assumption that someone else will clear it.
+ const safe=legal.filter(move=>boardPenalty(piles,move)===0);
+ const candidates=safe.length?safe:legal;
  if(candidates.length===1)return candidates[0];
  const rosterId=options.profiles===false ? 0 : s.players[id].rosterId;
  const baseSamples=Number.isFinite(options.samples)?Math.max(8,Math.min(96,Math.floor(options.samples))):24;
  const samples=Math.min(96,baseSamples+([5,11].includes(rosterId)?Math.ceil(baseSamples/3):0));
  const helpWeights=publicHelpWeights(s,id,rosterId);
- const scenarios=Array.from({length:samples},()=>({moves:view.opponents.map(p=>sampleOpponent(p,piles,view.count,Math.random)),seed:Math.floor(Math.random()*4294967296)}));
- const costs=candidates.map(move=>{
+ // Include unexpected legal plays so our forecast doesn't assume that everyone avoids a crowded pile.
+ const scenarios=Array.from({length:samples},(_,i)=>({
+  moves:view.opponents.map(p=>sampleOpponent(p,piles,view.count,Math.random,i%8===0)),
+  seed:Math.floor(Math.random()*4294967296)
+ }));
+ const evaluations=candidates.map(move=>{
   let total=0,squares=0,future=0,others=0;
   for(const scenario of scenarios){
    const queue=order([...scenario.moves,move],view.leader,view.count).map(m=>({...m,deferred:false}));
@@ -199,11 +220,17 @@ function choose(s,id,options={}){
    if(options.resources!==false)future+=remainingCost(view.hand,view.chips,move,result.piles,profile);
   }
   const average=total/samples,spread=Math.sqrt(Math.max(0,squares/samples-average*average));
-  return average+others/samples+(.1+.4*profile.risk)*spread+future/samples-move.value*(.015+.055*profile.highCards);
+  const preference=others/samples+(.1+.4*profile.risk)*spread+future/samples-move.value*(.015+.055*profile.highCards);
+  return {move,loss:total,immediate:boardPenalty(piles,move),preference};
  });
- const best=Math.min(...costs),temperature=.1+.4*profile.variety,gap=.35+.8*profile.variety;
- const weights=costs.map(c=>c-best>gap?0:Math.exp(-(c-best)/temperature));
- return candidates[weightedIndex(weights,Math.random)];
+ // All candidates saw the same deals. Compare our own penalty totals before applying traits.
+ const leastLoss=Math.min(...evaluations.map(e=>e.loss));
+ const leastRisk=evaluations.filter(e=>e.loss===leastLoss);
+ const leastImmediate=Math.min(...leastRisk.map(e=>e.immediate));
+ const finalists=leastRisk.filter(e=>e.immediate===leastImmediate);
+ const best=Math.min(...finalists.map(e=>e.preference)),temperature=.1+.4*profile.variety,gap=.35+.8*profile.variety;
+ const weights=finalists.map(e=>e.preference-best>gap?0:Math.exp(-(e.preference-best)/temperature));
+ return finalists[weightedIndex(weights,Math.random)].move;
 }
 function publicHelpWeights(s,id,rosterId){
  if(rosterId!==9 && rosterId!==10)return null;
@@ -225,22 +252,25 @@ function botAction(s,options={}){
   const safe=colors.filter(c=>!penalty(piles,c,move.value));
   if(safe.length)return {pass:false,color:safe.sort((a,b)=>piles[b].total-piles[a].total)[0]};
  }
- if(rosterId===1 && !move.deferred && !normal.pass && queue.length>1 && Math.random()<.40){
+ // A bluff or a helpful pass cannot trade a safe placement for an uncertain turn later.
+ const safeToDelay=()=>boardPenalty(piles,move)>0 || safeAfterPass(piles,queue);
+ if(rosterId===1 && !move.deferred && !normal.pass && queue.length>1 && safeToDelay() && Math.random()<.40){
   const bluff={pass:true,color:normal.color};
   const after=runQueue(piles,queue,s.passed,s.players.length,Math.random,false,bluff);
   if(after.points[move.id]<=penalty(piles,normal.color,move.value))return bluff;
  }
  const weights=publicHelpWeights(s,move.id,rosterId);
  if(!weights)return normal;
- const targets=move.color==='rainbow'?colors:[move.color];
- const actions=[normal,...targets.map(color=>({pass:false,color}))];
- if(!move.deferred)actions.push({pass:true,color:normal.color});
- let best=normal,bestCost=Infinity;
+ const actions=[normal,...targetsFor(move).filter(color=>normal.pass || color!==normal.color).map(color=>({pass:false,color}))];
+ if(!move.deferred && !normal.pass && safeToDelay())actions.push({pass:true,color:normal.color});
+ let best=normal,bestOwn=Infinity,bestOthers=Infinity;
  const seed=Math.floor(Math.random()*4294967296);
  for(const action of actions){
   const result=runQueue(piles,queue,s.passed,s.players.length,seededRandom(seed),false,action);
-  const cost=result.points[move.id]+weightedPenalty(result.points,weights);
-  if(cost<bestCost){bestCost=cost;best=action;}
+  const own=result.points[move.id],others=weightedPenalty(result.points,weights);
+  if(own<bestOwn || (own===bestOwn && others<bestOthers)){
+   bestOwn=own;bestOthers=others;best=action;
+  }
  }
  return best;
 }
