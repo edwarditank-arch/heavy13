@@ -55,7 +55,7 @@ export function view(G, room, id, revision, identity) {
   const watcher = spectator ? room.spectators?.find(person => person.identity === identity) : null;
   const waiter = spectator ? room.waiting?.find(person => person.identity === identity) : null;
   const viewer = spectator ? watcher ?? waiter : room.seats[id];
-  const out = { revision, gameRevision: room.gameRevision ?? revision, id, players, spectators:activeAudience(room), capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
+  const out = { revision, hostId: room.hostId ?? 0, gameRevision: room.gameRevision ?? revision, id, players, spectators:activeAudience(room), capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
   if(spectator)out.spectator=true;
   if(watcher)out.spectatorName=watcher.name;
   if(viewer){
@@ -158,7 +158,7 @@ export function apply(G, room, identity, input, revision) {
     return true;
   }
   if (action === 'resize') {
-    requireThat(id === 0, '방장만 정원을 변경할 수 있습니다.', 403);
+    requireThat(id === (room.hostId ?? 0), '방장만 정원을 변경할 수 있습니다.', 403);
     requireThat(!g, '게임 시작 전에만 정원을 변경할 수 있습니다.', 409);
     validateCapacity(input.capacity);
     requireThat(input.capacity >= room.seats.length, '참가 중인 플레이어 수보다 정원을 줄일 수 없습니다.', 409);
@@ -168,14 +168,19 @@ export function apply(G, room, identity, input, revision) {
     return true;
   }
   if (action === 'start' || action === 'rematch') {
-    requireThat(id === 0, '방장만 시작할 수 있습니다.', 403);
+    requireThat(id === (room.hostId ?? 0), '방장만 시작할 수 있습니다.', 403);
     requireThat(action === 'start' ? !g : g?.phase === 'finished' && currentTurn, '이미 진행 중입니다.', 409);
     const humans = room.seats.filter(seat => !seat.rosterId);
     const size = room.capacity ?? humans.length;
     requireThat(size >= 2, '두 명 이상 모이면 시작할 수 있습니다.');
     room.game = G.createMatch(humans.map(seat => seat.name), size - humans.length);
-    const bots = room.game.players.slice(humans.length).map(({name, rosterId}) => ({name, rosterId}));
-    room.seats = humans.concat(bots);
+    const host = room.seats[id];
+    const seats = G.shuffle(room.game.players.map((player, index) => ({
+      player, seat: humans[index] ?? {name: player.name, rosterId: player.rosterId}
+    })));
+    room.game.players = seats.map(entry => entry.player);
+    room.seats = seats.map(entry => entry.seat);
+    room.hostId = room.seats.indexOf(host);
     for(const person of room.waiting ?? [])admitSpectator(room,person);
     room.waiting = [];
     room.pending = {};

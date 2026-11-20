@@ -13,7 +13,7 @@ const RoomPlayback = (() => {
       for (let i=start; i<events.length; i++) {
         const event = events[i];
         const view = {round, moves:cards, phase:'resolve', turn:event, leader,
-          id:after.id, spectator:after.spectator, piles, players, events:events.slice(0,i), previous};
+          id:after.id, hostId:after.hostId, spectator:after.spectator, piles, players, events:events.slice(0,i), previous};
         if (event.type === 'place') {
           const stack = event.points ? [] : piles[event.color];
           piles = {...piles, [event.color]:[...stack,event.value]};

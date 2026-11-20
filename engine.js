@@ -26,13 +26,17 @@ function persona(id) {
  return row ? {name:row[0], trait:row[1], description:row[2], line:row[3]} : null;
 }
 
+function shuffle(items) {
+ for (let i = items.length - 1; i > 0; i--) {
+  const other = Math.floor(Math.random() * (i + 1));
+  [items[i], items[other]] = [items[other], items[i]];
+ }
+ return items;
+}
+
 function drawOpponents(count, humanNames) {
  const pool = aiNames.map((_, index) => index + 1).filter(id => !humanNames.includes(aiNames[id - 1]));
- for (let i = pool.length - 1; i > 0; i--) {
-  const other = Math.floor(Math.random() * (i + 1));
-  [pool[i], pool[other]] = [pool[other], pool[i]];
- }
- return pool.slice(0, count);
+ return shuffle(pool).slice(0, count);
 }
 
 function create(n) {
@@ -240,5 +244,5 @@ function botAction(s,options={}){
  }
  return best;
 }
-const api={colors,aiNames,persona,restoreRoster,fresh,create,createMatch,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
+const api={colors,aiNames,shuffle,persona,restoreRoster,fresh,create,createMatch,sum,order,submit,reveal,current,act,next,ranking,choose,botAction,observe,normalizeProfile,defaultProfile};if(typeof module!=='undefined')module.exports=api;else root.Game=api;
 })(typeof window!=='undefined'?window:globalThis);
