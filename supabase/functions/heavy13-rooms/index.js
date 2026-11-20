@@ -1,5 +1,5 @@
 import '../../../engine.js';
-import { RoomError, apply, newRoom, view } from './room.mjs';
+import { RoomError, activeAudience, apply, newRoom, view } from './room.mjs';
 const G = globalThis.Game;
 const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const endpoint = Deno.env.get('SUPABASE_URL') + '/rest/v1/heavy13_rooms_v1';
@@ -36,12 +36,6 @@ Deno.serve(async req => {
       const rows=await db(code+'&expires_at=gt.'+now+'&select=revision,payload');
       if(!rows.length) throw new RoomError('방을 찾을 수 없습니다. 방 코드를 확인해 주세요.',404);
       const {payload,revision}=rows[0];
-      if(b.action==='watch'){
-        if(payload.closed)throw new RoomError('종료된 방입니다.',404);
-        const publicRevision=payload.gameRevision ?? revision;
-        if(b.revision===publicRevision)return reply({unchanged:true});
-        return reply(view(G,payload,null,publicRevision));
-      }
       const seat=payload.seats.findIndex(p=>p.identity===identity);
       if(b.action==='create') {
         if(seat!==0 || payload.closed) throw new RoomError('방 코드가 겹쳤습니다. 다시 시도해 주세요.',409);
@@ -49,7 +43,9 @@ Deno.serve(async req => {
       }
       const changed=apply(G,payload,identity,b,revision);
       if(changed) {
-        payload.gameRevision = b.action === 'chat' ? (payload.gameRevision ?? revision) : revision + 1;
+        const audienceChange = payload.game && seat<0 && ['join','leave'].includes(b.action);
+        const socialOnly = audienceChange || ['chat','read','watch'].includes(b.action);
+        payload.gameRevision = socialOnly ? (payload.gameRevision ?? revision) : revision + 1;
         const saved=await db(code+'&revision=eq.'+revision+'&select=code','PATCH',{payload,revision:revision+1,expires_at:expiry()});
         if(!saved.length) {
           await new Promise(resolve=>setTimeout(resolve,Math.random()*Math.min(250,15*(attempt+1))));
@@ -59,11 +55,11 @@ Deno.serve(async req => {
       }
       const member=payload.seats.findIndex(p=>p.identity===identity);
       const version=revision+Number(changed);
-      if(member<0 && !payload.game && b.action==='join' && !payload.waiting?.some(p=>p.identity===identity))
+      if(b.action==='join' && member<0 && !payload.waiting?.some(p=>p.identity===identity) && !payload.spectators?.some(p=>p.identity===identity))
         return reply({needsName:true});
-      const visibleVersion=member<0 && payload.game ? (payload.gameRevision ?? version) : version;
-      if(b.action==='read' && b.revision===visibleVersion) return reply({unchanged:true});
-      return reply(view(G,payload,member<0?null:member,visibleVersion,identity));
+      if((b.action==='read' || b.action==='watch') && b.revision===version)
+        return reply({unchanged:true,revision:version,spectators:activeAudience(payload)});
+      return reply(view(G,payload,member<0 || b.action==='watch'?null:member,version,identity));
     }
     throw new RoomError('잠시 후 다시 시도해 주세요.',409);
   } catch(e) {

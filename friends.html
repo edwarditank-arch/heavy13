@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#202b40"><meta name="referrer" content="same-origin">
   <title>친구 대전 · 무거운 13</title>
-  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css?v=lobby2"><link rel="stylesheet" href="/board.css">
-  <script defer src="/engine.js"></script><script defer src="/board.js?v=motion1"></script><script defer src="/chat-panel.js"></script><script defer src="/ai-watch.js"></script><script defer src="/room-playback.js"></script><script defer src="/friends.js?v=motion1"></script>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css?v=audience1"><link rel="stylesheet" href="/board.css">
+  <script defer src="/engine.js"></script><script defer src="/board.js?v=motion1"></script><script defer src="/chat-panel.js?v=audience1"></script><script defer src="/ai-watch.js"></script><script defer src="/room-playback.js"></script><script defer src="/friends.js?v=audience1"></script>
 </head>
 <body class="friends">
   <header><a class="brand" href="/"><span class="brandmark">13</span><span>무거운 13<small>HEAVY THIRTEEN</small></span></a>
@@ -29,6 +29,10 @@
         <div class="roomInfo" id="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button></div>
         <div class="watchTools" id="aiWatchTools" hidden><button id="pauseWatch" class="secondary">일시정지</button><button id="stepWatch" class="quiet" hidden>한 수 진행</button><button id="againWatch" class="primary" hidden>새 대전 관전</button></div>
         <a id="exitWatch" class="quiet" href="/friends.html" hidden>관전 나가기</a></div>
+      <section id="audience" class="audience" hidden aria-label="관전석">
+        <h2>관전석 <span id="audienceCount">0명</span></h2>
+        <ul id="audienceList" aria-live="polite" aria-relevant="additions removals"></ul>
+      </section>
       <div id="board"></div>
       <div class="chatDock" id="chatDock" hidden></div>
     </section>

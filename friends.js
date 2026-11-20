@@ -31,16 +31,39 @@
     if(!response.ok) { const err=new Error(data.error || '방을 불러오지 못했습니다.'); err.status=response.status; throw err; }
     return data;
   }
+  function showAudience(names, ownName, visible){
+    const panel=$('#audience');
+    panel.hidden=!visible;
+    if(!visible)return;
+    const key=JSON.stringify([names,ownName]);
+    if(panel.dataset.roster===key)return;
+    panel.dataset.roster=key;
+    $('#audienceCount').textContent=names.length+'명';
+    const list=$('#audienceList');
+    list.replaceChildren(...names.map(name=>{
+      const item=document.createElement('li');
+      item.textContent=name+(name===ownName?' · 나':'');
+      return item;
+    }));
+  }
   function accept(data) {
-    if(data.unchanged){if(!document.hidden)catchUp=false;return;}
-    if(state && data.revision<state.revision) return;
+    if(state && data.revision<state.revision)return;
+    if(data.unchanged){
+      if(state && Array.isArray(data.spectators) && data.spectators.join('\n')!==(state.spectators ?? []).join('\n')){
+        state.spectators=data.spectators;
+        showAudience(data.spectators,state.spectatorName,!state.aiTable && state.phase!=='lobby');
+      }
+      if(!document.hidden)catchUp=false;return;
+    }
     const previous=state;
     if(!state || data.round!==state.round || data.phase!==state.phase) selected={};
     const gameChanged=!state || (data.gameRevision ?? data.revision)!==(state.gameRevision ?? state.revision);
     if(state?.queuePosition && !data.queuePosition)
       say(data.spectator?'게임이 시작되어 관전석으로 이동했습니다.':'자리가 생겨 플레이어로 합류했습니다.');
     state=data;
-    if(data.spectator)roomChat.reset();else roomChat.show(code,'방 '+code,data.chat ?? []);
+    showAudience(data.spectators ?? [],data.spectatorName,!data.aiTable && data.phase!=='lobby');
+    if(data.aiTable || !Array.isArray(data.chat))roomChat.reset();
+    else roomChat.show(code,'방 '+code+(data.spectatorName?' · 관전자 '+data.spectatorName:''),data.chat);
     $('#modeLabel').textContent=data.aiTable?'AI 대전 관전':data.queuePosition?'참가 대기 중':data.spectator?'친구 대전 관전':'친구 대전';
     $('#roomInfo').hidden=!!data.aiTable;
     $('#exitWatch').hidden=!data.spectator || !!data.queuePosition;
@@ -59,7 +82,7 @@
     if(!state || document.hidden || busy) return;
     const activeCode=code;
     try {
-      const data=await request(state.spectator && !state.queuePosition?'watch':'read');
+      const data=await request('read');
       if(!state || activeCode!==code) return;
       if(disconnected) {say('');disconnected=false;}
       accept(data);
@@ -77,9 +100,9 @@
     $('#create').hidden=false;$('#roomSize').hidden=false;$('#roomCode').value='';
     $('#join').className='secondary';$('#join').textContent='코드로 입장';
   }
-  async function enter(action,roomCode) {
+  async function enter(action,roomCode,restoreOnly=false) {
     if(busy)return;
-    const name=$('#nickname').value.trim();
+    const name=restoreOnly?'':$('#nickname').value.trim();
     if(!validCode.test(roomCode)){say('영문과 숫자로 된 6자리 방 코드를 입력해 주세요.');return;}
     busy=true;code=roomCode;token=read(localKey(code)) || makeToken();
     write(localKey(code),token);
@@ -89,10 +112,11 @@
       const data=await request(action,action==='create' ? {name,capacity:Number($('#capacity').value)} : {name});
       if(data.needsName){
         needsName=true;
-        say('닉네임을 입력하고 방에 입장해 주세요.');
+        say('닉네임을 확인하고 입장해 주세요. 게임이 시작된 방에는 관전자로 들어갑니다.');
         return;
       }
-      if(name && (!data.spectator || data.queuePosition))write('heavy13.nickname',name);
+      const myName=data.spectatorName || data.players?.[data.id]?.name || name;
+      if(myName)write('heavy13.nickname',myName);
       write(recentKey,code);
       history.replaceState(null,'','?room='+code);
       say('');accept(data);
@@ -199,7 +223,7 @@
     if(busy)$('#board').querySelectorAll('button,select').forEach(b=>{b.disabled=true;});
   }
   async function act(action,details={}) {
-    if(busy||playback.active()||!state||(state.spectator && !(action==='leave' && state.queuePosition)))return;
+    if(busy || !state || (playback.active() && action!=='leave') || (state.spectator && (action!=='leave' || state.aiTable)))return;
     if(action==='home'){toEntry();say('');return;}
     const extra={...selected,...details};busy=true;clearTimeout(timer);render();say('');
     try {
@@ -225,7 +249,7 @@
     markRead:(key,seq)=>write('heavy13.chatRead.'+key,String(seq)),
     send:async message=>{
       const activeCode=code, data=await request('chat',message);
-      if(activeCode===code && state && !state.spectator)accept(data);
+      if(activeCode===code && state && !state.aiTable)accept(data);
     }
   });
   $('#entryForm').addEventListener('submit',e=>{
@@ -240,6 +264,9 @@
     catch{say('초대 링크 '+link.href);}
   }
   $('#copy').onclick=copyInvite;
+  $('#exitWatch').onclick=event=>{
+    if(state?.spectatorName){event.preventDefault();act('leave');}
+  };
   $('#rulesOpen').onclick=()=>$('#help').showModal();$('#closeHelp').onclick=()=>$('#help').close();
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){catchUp=true;playback.cancel();render();}
@@ -264,6 +291,6 @@
     $('#roomCode').value=inviteCode;
     $('#join').textContent='초대받은 방에 입장';$('#create').hidden=true;$('#roomSize').hidden=true;$('#join').className='primary';
     history.replaceState(null,'','?room='+inviteCode);
-    enter('join',inviteCode);
+    enter('join',inviteCode,true);
   }
 })();

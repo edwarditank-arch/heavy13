@@ -30,10 +30,14 @@ window.HeavyChat = {
     function add(m){
       const row=element('div','chatMessage'+(m.mine?' mine':''),'');
       row.dataset.seq=m.seq;
+      if(m.role==='arrival'){
+        row.classList.add('chatArrival');row.textContent=m.text;log.append(row);return;
+      }
       const meta=element('div','chatMeta','');
       meta.append(element('strong','',m.name));
       const trait=Game.persona(Game.aiNames.indexOf(m.name)+1)?.trait;
       if(trait)meta.append(element('span','traitBadge',trait));
+      if(m.role==='spectator' || m.role==='waiting')meta.append(element('small','audienceRole',m.role==='spectator'?'관전':'대기'));
       if(m.bot)meta.append(element('small','chatAi','AI'));
       if(m.mine && m.name!=='나')meta.append(element('small','','나'));
       meta.append(element('time','',clock.format(m.time)));

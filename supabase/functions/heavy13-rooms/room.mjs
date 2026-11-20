@@ -21,20 +21,29 @@ function fillOpenSeats(room) {
   const available = (room.capacity ?? 10) - room.seats.length;
   if (available > 0 && room.waiting?.length) room.seats.push(...room.waiting.splice(0, available));
 }
-function appendChat(room, sender, text, nonce) {
+// Polls renew a spectator lease at most once a minute. A closed tab drops out of the visible roster.
+export function activeAudience(room, now = Date.now()) {
+  return (room.spectators ?? []).filter(person => now - person.seenAt < 180000).map(person => person.name);
+}
+function nextChatSeq(room) { return (room.chat?.at(-1)?.seq ?? 0) + 1; }
+function admitSpectator(room, person) {
+  (room.spectators ??= []).push({...person, chatFrom:person.chatFrom ?? nextChatSeq(room), seenAt:Date.now()});
+  appendChat(room, {name:person.name}, person.name+'님이 관전을 시작했습니다.', undefined, 'arrival');
+}
+function appendChat(room, sender, text, nonce, role) {
   const history = room.chat ??= [];
   const seq = (history.at(-1)?.seq ?? 0) + 1;
-  history.push({seq, name: sender.name, author: sender.identity, bot: !!sender.rosterId, text, nonce, time: Date.now()});
+  history.push({seq, name: sender.name, author: sender.identity, bot: !!sender.rosterId, role, text, nonce, time: Date.now()});
   if (history.length > 80) history.shift();
 }
-function sendChat(room, seat, input) {
+function sendChat(room, seat, input, role) {
   requireThat(typeof input.nonce === 'string' && /^[a-f0-9]{32}$/.test(input.nonce), '전송 정보를 확인해 주세요.');
   const previous = (room.chat ?? []).findLast(m => m.author === seat.identity);
   if ((room.chat ?? []).some(m => m.author === seat.identity && m.nonce === input.nonce)) return false;
   const text = typeof input.text === 'string' ? input.text.trim().normalize('NFC') : '';
   requireThat(text && text.length <= 200 && !/[\p{Cc}\u202A-\u202E\u2066-\u2069]/u.test(text), '메시지는 한 줄로 1~200자까지 보낼 수 있어요.');
   requireThat(!previous || Date.now() - previous.time >= 750, '잠시 후에 보내 주세요.', 429);
-  appendChat(room, seat, text, input.nonce);
+  appendChat(room, seat, text, input.nonce, role);
   return true;
 }
 export function view(G, room, id, revision, identity) {
@@ -43,11 +52,19 @@ export function view(G, room, id, revision, identity) {
     name: s.name, rosterId: s.rosterId ?? null, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
   }));
   const spectator = id === null;
-  const chat = spectator ? [] : (room.chat ?? []).map(({seq, name, author, bot, text, time}) => ({
-    seq, name, bot, text, time, mine: author === room.seats[id]?.identity
-  }));
-  const out = { revision, gameRevision: room.gameRevision ?? revision, id, players, capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
-  if(spectator)out.spectator=true;else out.chat=chat;
+  const watcher = spectator ? room.spectators?.find(person => person.identity === identity) : null;
+  const waiter = spectator ? room.waiting?.find(person => person.identity === identity) : null;
+  const viewer = spectator ? watcher ?? waiter : room.seats[id];
+  const out = { revision, gameRevision: room.gameRevision ?? revision, id, players, spectators:activeAudience(room), capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
+  if(spectator)out.spectator=true;
+  if(watcher)out.spectatorName=watcher.name;
+  if(viewer){
+    // Spectators see the conversation from their arrival and keep it when reconnecting.
+    const first = spectator ? (viewer.chatFrom ?? nextChatSeq(room)) : 0;
+    out.chat=(room.chat ?? []).filter(m=>m.seq>=first).map(({seq,name,author,bot,role,text,time})=>({
+      seq,name,bot,role,text,time,mine:author===viewer.identity
+    }));
+  }
   if (!g) {
     const waiting = room.waiting ?? [];
     out.waiting = waiting.map(person => person.name);
@@ -96,23 +113,41 @@ export function apply(G, room, identity, input, revision) {
   const action = input.action;
   requireThat(!room.closed, '종료된 방입니다.', 404);
   const queued = room.waiting?.findIndex(s => s.identity === identity) ?? -1;
-  if (action === 'join') {
-    if (id >= 0 || queued >= 0 || g || !input.name) return false;
-    const name = nickname(input.name);
-    const waiting = room.waiting ??= [];
-    requireThat(!room.seats.some(s => s.name === name) && !waiting.some(s => s.name === name), '이 방에서 이미 사용 중인 닉네임입니다.', 409);
-    waiting.push({name, identity});
-    fillOpenSeats(room);
+  const watchers=room.spectators ?? [];
+  const watcher=watchers.find(person=>person.identity===identity);
+  if (action === 'join' && id<0 && queued<0 && !watcher) {
+    if (!input.name) return false;
+    const name=nickname(input.name);
+    const occupied=[...room.seats.filter(s=>!s.rosterId),...(room.waiting ?? []),...watchers];
+    requireThat(!occupied.some(person=>person.name===name), '이 방에서 이미 사용 중인 닉네임입니다.',409);
+    const person={name,identity,chatFrom:nextChatSeq(room)};
+    if(g)admitSpectator(room,person);
+    else {
+      (room.waiting ??= []).push(person);
+      fillOpenSeats(room);
+    }
     return true;
   }
-  if (action === 'leave' && queued >= 0) {
-    room.waiting.splice(queued, 1);
+  const member=id>=0 ? room.seats[id] : queued>=0 ? room.waiting[queued] : watcher;
+  requireThat(member,'닉네임으로 방에 입장해 주세요.',403);
+  if(action==='join' || action==='read' || action==='watch'){
+    if(watcher && Date.now()-watcher.seenAt>=60000){watcher.seenAt=Date.now();return true;}
+    // Supply the admission boundary for waiters carried over from an earlier version.
+    if(queued>=0 && member.chatFrom===undefined){member.chatFrom=nextChatSeq(room);return true;}
+    return false;
+  }
+  if(action==='leave' && id<0){
+    if(watcher)watchers.splice(watchers.indexOf(watcher),1);
+    else room.waiting.splice(queued,1);
     return true;
   }
-  if (action === 'read' && (queued >= 0 || g)) return false;
-  requireThat(id >= 0, '이 브라우저로 방에 다시 입장해 주세요.', 403);
-  if (action === 'read') return false;
-  if (action === 'chat') return sendChat(room, room.seats[id], input);
+  if(action==='chat'){
+    if(queued>=0 && member.chatFrom===undefined)member.chatFrom=nextChatSeq(room);
+    const sent=sendChat(room,member,input,watcher?'spectator':queued>=0?'waiting':undefined);
+    if(watcher && sent)watcher.seenAt=Date.now();
+    return sent;
+  }
+  requireThat(id>=0,'플레이어만 게임을 진행할 수 있습니다.',403);
   // Chat writes advance the storage revision without invalidating game decisions.
   const currentTurn = Number.isInteger(input.revision) && input.revision >= (room.gameRevision ?? revision) && input.revision <= revision;
   if (action === 'leave') {
@@ -141,6 +176,7 @@ export function apply(G, room, identity, input, revision) {
     room.game = G.createMatch(humans.map(seat => seat.name), size - humans.length);
     const bots = room.game.players.slice(humans.length).map(({name, rosterId}) => ({name, rosterId}));
     room.seats = humans.concat(bots);
+    for(const person of room.waiting ?? [])admitSpectator(room,person);
     room.waiting = [];
     room.pending = {};
     submitBots(G, room);

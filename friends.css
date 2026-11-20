@@ -92,3 +92,11 @@ body:has(#soloDock:not([hidden])){padding-bottom:60px}
 .queuePanel li {margin:7px 0;overflow-wrap:anywhere;}
 .queuePanel small {color:var(--accent);}
 .queuePanel p {font-size:14px;line-height:1.65;margin:8px 0 0;}
+
+.audience {display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin:-4px 0 14px;padding:9px 13px;color:var(--ink);border:1px solid var(--line);border-radius:8px;background:var(--paper);}
+.audience h2 {margin:0;font:inherit;font-size:14px;font-weight:700;}
+#audienceCount {color:var(--accent);font-weight:600;font-size:12px;margin-left:3px;}
+#audienceList {display:flex;flex-wrap:wrap;gap:4px 7px;list-style:none;margin:0;padding:0;}
+#audienceList li,.chatMeta .audienceRole {padding:2px 7px;background:#e5eced;color:#304c55;border-radius:12px;font-size:12px;overflow-wrap:anywhere;}
+.chatMeta .audienceRole {font-size:10px;}
+.chatMessage.chatArrival {display:block;color:#536169;font-size:12px;text-align:center;overflow-wrap:anywhere;}
