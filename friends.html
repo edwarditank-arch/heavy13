@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#202b40"><meta name="referrer" content="same-origin">
   <title>친구 대전 · 무거운 13</title>
-  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css?v=audience1"><link rel="stylesheet" href="/board.css">
-  <script defer src="/engine.js"></script><script defer src="/board.js?v=motion1"></script><script defer src="/chat-panel.js?v=audience1"></script><script defer src="/ai-watch.js"></script><script defer src="/room-playback.js?v=seats1"></script><script defer src="/friends.js?v=seats1"></script>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/friends.css?v=roomactions1"><link rel="stylesheet" href="/board.css">
+  <script defer src="/engine.js"></script><script defer src="/board.js?v=motion1"></script><script defer src="/chat-panel.js?v=roomactions1"></script><script defer src="/ai-watch.js"></script><script defer src="/room-playback.js?v=seats1"></script><script defer src="/friends.js?v=roomactions1"></script>
 </head>
 <body class="friends">
   <header><a class="brand" href="/"><span class="brandmark">13</span><span>무거운 13<small>HEAVY THIRTEEN</small></span></a>
@@ -26,7 +26,9 @@
     <div role="status" id="notice"></div>
     <section id="match" hidden>
       <div class="onlineHeading"><div><div class="eyebrow" id="modeLabel">친구 대전</div><h1 id="title">대기실</h1></div>
-        <div class="roomInfo" id="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button></div>
+        <div class="roomInfo" id="roomInfo"><span>방 코드</span><strong id="codeText"></strong><button id="copy" class="quiet">초대 링크 복사</button>
+          <button id="newMatch" class="secondary" hidden>새 게임</button><button id="manageRoom" class="quiet" hidden>강퇴 관리</button>
+          <button id="leaveRoom" class="quiet" hidden>나가기</button></div>
         <div class="watchTools" id="aiWatchTools" hidden><button id="pauseWatch" class="secondary">일시정지</button><button id="stepWatch" class="quiet" hidden>한 수 진행</button><button id="againWatch" class="primary" hidden>새 대전 관전</button></div>
         <a id="exitWatch" class="quiet" href="/friends.html" hidden>관전 나가기</a></div>
       <section id="audience" class="audience" hidden aria-label="관전석">
@@ -38,6 +40,15 @@
     </section>
   </main>
   <footer>데블스 플랜: 데드 어게인 · 감옥매치 비공식 연습 게임</footer>
+  <dialog id="roomActionDialog" aria-labelledby="roomActionTitle" aria-describedby="roomActionNote">
+    <h2 id="roomActionTitle"></h2><p id="roomActionNote"></p>
+    <label id="kickLabel" for="kickTarget" hidden>강퇴할 참가자 <select id="kickTarget"></select></label>
+    <div class="roomActionButtons">
+      <button id="confirmRoomAction" class="primary"></button>
+      <a id="otherRoomLink" class="secondary" href="/friends.html" target="_blank" rel="noopener" hidden>새 탭에서 다른 방 만들기 ↗</a>
+      <button id="cancelRoomAction" class="quiet">취소</button>
+    </div>
+  </dialog>
   <dialog id="help"><h2>무거운 13 게임 규칙</h2>
     <ol><li>0~6 카드 한 장과 색깔 칩 한 개를 비공개로 냅니다. 모두 확정하면 색깔부터 공개합니다.</li>
     <li>레인보우 칩이 먼저, 다음은 큰 숫자부터 배치합니다. 동률이면 선 플레이어부터 좌석 순입니다. 레인보우는 배치할 때 받침대를 고릅니다.</li>

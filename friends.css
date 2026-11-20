@@ -94,6 +94,13 @@ body:has(#soloDock:not([hidden])){padding-bottom:60px}
 .queuePanel p {font-size:14px;line-height:1.65;margin:8px 0 0;}
 
 .audience {display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin:-4px 0 14px;padding:9px 13px;color:var(--ink);border:1px solid var(--line);border-radius:8px;background:var(--paper);}
+#roomActionDialog {width:min(410px,calc(100vw - 28px));}
+#roomActionNote {margin:0 0 16px;line-height:1.7;}
+#kickLabel {display:grid;gap:6px;margin-bottom:16px;}
+#kickTarget {width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);font:inherit;}
+.roomActionButtons {display:grid;gap:8px;}
+.roomActionButtons .primary,.roomActionButtons .secondary {justify-content:center;text-align:center;}
+.roomActionButtons a {display:block;text-decoration:none;font:inherit;font-size:14px;padding:10px;border:1px solid var(--line);border-radius:6px;}
 .audience h2 {margin:0;font:inherit;font-size:14px;font-weight:700;}
 #audienceCount {color:var(--accent);font-weight:600;font-size:12px;margin-left:3px;}
 #audienceList {display:flex;flex-wrap:wrap;gap:4px 7px;list-style:none;margin:0;padding:0;}

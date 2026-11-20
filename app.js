@@ -107,7 +107,12 @@ for(const [field,inputId] of Object.entries(aiFields))$('#'+inputId).oninput=e=>
 $('#aiResetPlayer').onclick=()=>resetAIProfile();$('#aiResetAll').onclick=()=>resetAIProfile(true);
 $('#aiApply').onclick=applyAISettings;$('#aiCancel').onclick=cancelAISettings;
 $('#aiSettings').addEventListener('cancel',e=>{e.preventDefault();cancelAISettings();});
-function openSetup(){ $('#cancelSetup').hidden=!state;$('#setup').showModal();}$('#count').oninput=e=>{ $('#countLabel').textContent=e.target.value+'명'; $('#totalCount').textContent=String(Number(e.target.value)+1); };$('#start').onclick=()=>{stopPlayback();state=G.create(+$('#count').value);state.traitProfiles=true;state.aiProfiles=profilesForMatch(state,aiPreferences);card=chip=target=null;save();$('#setup').close();render();};$('#cancelSetup').onclick=()=>$('#setup').close();$('#newOpen').onclick=openSetup;$('#rulesOpen').onclick=()=>$('#rules').showModal();$('#rulesClose').onclick=()=>$('#rules').close();$('#setup').addEventListener('cancel',e=>{if(!state)e.preventDefault();});
+function openSetup(){
+ $('#cancelSetup').hidden=!state;
+ $('#setupTitle').textContent=state?'새 AI 연습 게임':'무거운 13';
+ $('#setupSummary').textContent=state?'시작하면 새 카드와 0점으로 1라운드부터 플레이합니다.':'감옥매치 · 14라운드';
+ $('#setup').showModal();
+}$('#count').oninput=e=>{ $('#countLabel').textContent=e.target.value+'명'; $('#totalCount').textContent=String(Number(e.target.value)+1); };$('#start').onclick=()=>{stopPlayback();state=G.create(+$('#count').value);state.traitProfiles=true;state.aiProfiles=profilesForMatch(state,aiPreferences);card=chip=target=null;save();$('#setup').close();render();};$('#cancelSetup').onclick=()=>$('#setup').close();$('#newOpen').onclick=openSetup;$('#rulesOpen').onclick=()=>$('#rules').showModal();$('#rulesClose').onclick=()=>$('#rules').close();$('#setup').addEventListener('cancel',e=>{if(!state)e.preventDefault();});
 // Playback is transient: save only complete engine actions, so reload never duplicates a stone.
 let playback=null,playbackError='';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));

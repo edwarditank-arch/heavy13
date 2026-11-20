@@ -30,7 +30,7 @@ window.HeavyChat = {
     function add(m){
       const row=element('div','chatMessage'+(m.mine?' mine':''),'');
       row.dataset.seq=m.seq;
-      if(m.role==='arrival'){
+      if(m.role==='arrival' || m.role==='system'){
         row.classList.add('chatArrival');row.textContent=m.text;log.append(row);return;
       }
       const meta=element('div','chatMeta','');

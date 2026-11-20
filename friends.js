@@ -9,7 +9,7 @@
   const inviteCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
   const recentKey = 'heavy13.recentRoom';
   let code = '', token = '', state = null, busy = false, timer, selected = {}, disconnected = false;
-  let catchUp = false;
+  let catchUp = false, roomAction = null;
   const playback = RoomPlayback.create(render,()=>render());
   const localKey = c => 'heavy13.seat.' + c;
   const mem = new Map();
@@ -56,7 +56,10 @@
       if(!document.hidden)catchUp=false;return;
     }
     const previous=state;
-    if(!state || data.round!==state.round || data.phase!==state.phase) selected={};
+    const newMatch = previous?.matchRevision != null && data.matchRevision !== previous.matchRevision;
+    if(!state || newMatch || data.round!==state.round || data.phase!==state.phase) selected={};
+    if(newMatch) say('새 게임이 시작되었습니다. 좌석을 확인해 주세요.');
+    if(newMatch && $('#roomActionDialog').open) $('#roomActionDialog').close();
     const gameChanged=!state || (data.gameRevision ?? data.revision)!==(state.gameRevision ?? state.revision);
     if(state?.queuePosition && !data.queuePosition)
       say(data.spectator?'게임이 시작되어 관전석으로 이동했습니다.':'자리가 생겨 플레이어로 합류했습니다.');
@@ -66,10 +69,14 @@
     else roomChat.show(code,'방 '+code+(data.spectatorName?' · 관전자 '+data.spectatorName:''),data.chat);
     $('#modeLabel').textContent=data.aiTable?'AI 대전 관전':data.queuePosition?'참가 대기 중':data.spectator?'친구 대전 관전':'친구 대전';
     $('#roomInfo').hidden=!!data.aiTable;
-    $('#exitWatch').hidden=!data.spectator || !!data.queuePosition;
+    $('#newMatch').hidden=data.phase==='lobby';
+    $('#manageRoom').hidden=data.id==null || data.id!==(data.hostId ?? 0);
+    $('#manageRoom').disabled=!data.manageable?.length;
+    $('#leaveRoom').hidden=data.phase==='lobby';
+    $('#exitWatch').hidden=!data.aiTable;
     $('#exitWatch').href=data.aiTable?'/':'/friends.html'; $('#entry').hidden=true; $('#match').hidden=false; $('#codeText').textContent=code;
     if(gameChanged){
-      playback.update(previous,data,catchUp || document.hidden);
+      playback.update(previous,data,newMatch || catchUp || document.hidden);
       render();
     }
     if(!document.hidden)catchUp=false;
@@ -88,11 +95,12 @@
       accept(data);
     } catch(e) {
       if(activeCode!==code || !state) return;
-      if([403,404].includes(e.status)) { toEntry();say(e.message);return; }
+      if([403,404].includes(e.status)) { if(read(recentKey)===activeCode)write(recentKey,'');toEntry();say(e.message);return; }
       disconnected=true;catchUp=true;say('연결을 확인하고 있습니다. 잠시 후 자동으로 다시 연결합니다.');
     } finally { schedule(disconnected?4000:1900); }
   }
   function toEntry() {
+    if($('#roomActionDialog').open)$('#roomActionDialog').close();
     playback.cancel();catchUp=false;
     roomChat.reset();clearTimeout(timer);state=null;code='';token='';selected={};disconnected=false;
     history.replaceState(null,'',location.pathname);$('#entry').hidden=false;$('#match').hidden=true;
@@ -139,7 +147,7 @@
     return trait ? '<span class="traitBadge">'+esc(trait)+'</span>' : '';
   }
   function playerList(s) {
-    return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span'+(p.rosterId?' class="botName"':'')+'>'+(s.phase!=='lobby' && !s.aiTable?'<small>'+ (i+1)+'번</small> ':'')+(p.rosterId?botPortrait(p.rosterId):'')+esc(p.name)+traitBadge(p)+(p.rosterId?' <small>AI</small>':'')+(i===s.id?' <small>나</small>':'')+
+    return '<ul class="onlinePlayers">'+s.players.map((p,i)=>'<li><span'+(p.rosterId?' class="botName"':'')+'>'+(s.phase!=='lobby' && !s.aiTable?'<small>'+ (i+1)+'번</small> ':'')+(p.rosterId?botPortrait(p.rosterId):'')+esc(p.name)+traitBadge(p)+(p.autoplay?' <small>AI 대행</small>':p.rosterId?' <small>AI</small>':'')+(i===s.id?' <small>나</small>':'')+
       (i===(s.hostId ?? 0) && !s.aiTable?' <small>방장</small>':'')+(s.phase!=='lobby' && s.leader===i?' <small>선</small>':'')+'</span>'+
       (s.phase==='lobby'?'':(s.phase==='select'?(p.submitted?'제출 완료':'선택 중')+' · ':'')+'<b>'+p.score+'점</b>')+'</li>').join('')+'</ul>';
   }
@@ -223,8 +231,8 @@
     if(busy)$('#board').querySelectorAll('button,select').forEach(b=>{b.disabled=true;});
   }
   async function act(action,details={}) {
-    if(busy || !state || (playback.active() && action!=='leave') || (state.spectator && (action!=='leave' || state.aiTable)))return;
-    if(action==='home'){toEntry();say('');return;}
+    if(busy || !state || (playback.active() && !['leave','kick','restart'].includes(action)) || (state.spectator && (action!=='leave' || state.aiTable)))return;
+    if(action==='home'){openRoomAction('leave');return;}
     const extra={...selected,...details};busy=true;clearTimeout(timer);render();say('');
     try {
       const data=await request(action,extra);
@@ -263,6 +271,51 @@
     try{await navigator.clipboard.writeText(link.href);say('초대 링크를 복사했습니다. 친구에게 보내세요.');}
     catch{say('초대 링크 '+link.href);}
   }
+  function openRoomAction(action) {
+    if (!state || busy || state.aiTable) return;
+    const host = state.id != null && state.id === (state.hostId ?? 0);
+    const active = state.phase !== 'lobby' && state.phase !== 'finished';
+    const dialog = $('#roomActionDialog'), confirm = $('#confirmRoomAction');
+    const target = $('#kickTarget');
+    const members = state.manageable ?? [];
+    roomAction = {action, matchRevision:state.matchRevision ?? 0};
+    $('#kickLabel').hidden = action !== 'kick';
+    $('#otherRoomLink').hidden = action !== 'restart';
+    confirm.hidden = action === 'restart' && !host;
+    if (action === 'kick') {
+      if (!host || !members.length) return;
+      target.replaceChildren(new Option('참가자 선택', ''), ...members.map(p => new Option(p.name+' · '+p.role,p.key)));
+      $('#roomActionTitle').textContent = '참가자 강퇴';
+      $('#roomActionNote').textContent = active ? '강퇴된 플레이어의 자리는 AI가 이어받습니다. 강퇴된 참가자는 같은 브라우저로 이 방에 다시 입장할 수 없습니다.' : '강퇴된 참가자는 같은 브라우저로 이 방에 다시 입장할 수 없습니다.';
+      confirm.textContent = '선택한 참가자 강퇴';
+    } else if (action === 'leave') {
+      $('#roomActionTitle').textContent = '방에서 나갈까요?';
+      const others = state.players.some((p,i) => i!==state.id && !p.rosterId && !p.autoplay);
+      $('#roomActionNote').textContent = state.spectator ? '관전을 종료하고 친구 대전 첫 화면으로 돌아갑니다.'
+        : !others ? '마지막 플레이어가 나가면 방이 종료됩니다.'
+        : (active ? 'AI가 내 카드와 벌점을 이어받아 플레이합니다. ' : '')+(host ? '남은 플레이어에게 방장을 넘깁니다.' : '친구 대전 첫 화면으로 돌아갑니다.');
+      confirm.textContent = '나가기';
+    } else {
+      $('#roomActionTitle').textContent = '새 게임';
+      $('#roomActionNote').textContent = host ? '현재 판을 마치고 같은 방에서 모두 0점으로 다시 시작합니다. 좌석과 AI는 다시 추첨합니다.' : '다른 방을 만들면 현재 방은 이 탭에 열려 있습니다.';
+      confirm.textContent = '이 방에서 새 게임 시작';
+    }
+    confirm.disabled = action === 'kick';
+    dialog.showModal();
+  }
+  $('#newMatch').onclick=()=>openRoomAction('restart');
+  $('#manageRoom').onclick=()=>openRoomAction('kick');
+  $('#leaveRoom').onclick=()=>openRoomAction('leave');
+  $('#kickTarget').onchange=()=>{$('#confirmRoomAction').disabled=!$('#kickTarget').value;};
+  $('#cancelRoomAction').onclick=()=>$('#roomActionDialog').close();
+  $('#otherRoomLink').onclick=()=>$('#roomActionDialog').close();
+  $('#confirmRoomAction').onclick=()=>{
+    if (!roomAction || busy) return;
+    const {action,matchRevision}=roomAction;
+    const details=action==='kick'?{target:$('#kickTarget').value}:{matchRevision};
+    $('#roomActionDialog').close();
+    act(action,details);
+  };
   $('#copy').onclick=copyInvite;
   $('#exitWatch').onclick=event=>{
     if(state?.spectatorName){event.preventDefault();act('leave');}

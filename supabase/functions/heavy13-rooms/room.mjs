@@ -49,13 +49,22 @@ function sendChat(room, seat, input, role) {
 export function view(G, room, id, revision, identity) {
   const g = room.game;
   const players = room.seats.map((s, i) => ({
-    name: s.name, rosterId: s.rosterId ?? null, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
+    name: s.name, rosterId: s.rosterId ?? null, autoplay: !!s.autoplay, score: g?.players[i].score ?? 0, submitted: Object.hasOwn(room.pending, i)
   }));
   const spectator = id === null;
   const watcher = spectator ? room.spectators?.find(person => person.identity === identity) : null;
   const waiter = spectator ? room.waiting?.find(person => person.identity === identity) : null;
   const viewer = spectator ? watcher ?? waiter : room.seats[id];
   const out = { revision, hostId: room.hostId ?? 0, gameRevision: room.gameRevision ?? revision, id, players, spectators:activeAudience(room), capacity: room.capacity ?? null, phase: g?.phase ?? 'lobby' };
+  if (id === out.hostId) {
+    out.manageable = [];
+    for (const [role, list] of [['플레이어',room.seats], ['대기',room.waiting ?? []], ['관전',room.spectators ?? []]]) {
+      for (const person of list) {
+        if (person.identity && person !== viewer && (role !== '관전' || out.spectators.includes(person.name)))
+          out.manageable.push({key: person.identity.slice(0,24), name: person.name, role});
+      }
+    }
+  }
   if(spectator)out.spectator=true;
   if(watcher)out.spectatorName=watcher.name;
   if(viewer){
@@ -72,7 +81,7 @@ export function view(G, room, id, revision, identity) {
     return out;
   }
   Object.assign(out, {
-    round: g.round, leader: g.leader, piles: g.piles,
+    matchRevision: g.startedRevision ?? 0, round: g.round, leader: g.leader, piles: g.piles,
     events: g.events, previous: g.log.find(l => l.round < g.round)?.events ?? []
   });
   if(!spectator)Object.assign(out,{hand:g.players[id].hand,chips:g.players[id].chips,mine:room.pending[id] ?? null});
@@ -86,17 +95,18 @@ export function view(G, room, id, revision, identity) {
 }
 function submitBots(G, room) {
   for (const [id, seat] of room.seats.entries()) {
-    if (seat.rosterId) room.pending[id] = G.choose(room.game, id, {samples:8});
+    if (seat.rosterId || seat.autoplay) room.pending[id] = G.choose(room.game, id, {samples:8});
   }
 }
 
 function playBotTurns(G, room) {
   const g = room.game;
-  while (g.phase === 'resolve' && room.seats[G.current(g).id].rosterId) {
+  while (g.phase === 'resolve') {
     const seat = room.seats[G.current(g).id];
+    if (!seat.rosterId && !seat.autoplay) break;
     const move = G.botAction(g);
     G.act(g, move.pass, move.color);
-    if (!move.pass && g.round % 2 === 1 && g.lastChatterRound !== g.round) {
+    if (seat.rosterId && !move.pass && g.round % 2 === 1 && g.lastChatterRound !== g.round) {
       const bots = room.seats.filter(s => s.rosterId);
       const speaker = bots[((g.round - 1) / 2) % bots.length];
       if (seat === speaker) {
@@ -107,18 +117,55 @@ function playBotTurns(G, room) {
   }
 }
 
+function revealWhenReady(G, room) {
+  if (Object.keys(room.pending).length !== room.seats.length) return;
+  room.game.roundLeader = room.game.leader;
+  G.submit(room.game, room.seats.map((_,i) => room.pending[i]));
+  room.pending = {};
+}
+
+function removeMember(G, room, person, kicked) {
+  const id = room.seats.indexOf(person);
+  const host = room.seats[room.hostId ?? 0];
+  const g = room.game;
+  let notice = person.name + (kicked ? '님이 강퇴되었습니다.' : '님이 나갔습니다.');
+  if (id < 0) {
+    room.waiting = (room.waiting ?? []).filter(p => p !== person);
+    room.spectators = (room.spectators ?? []).filter(p => p !== person);
+  } else {
+    if (g) {
+      room.seats[id] = {name: person.name, autoplay: true};
+      if (g.phase !== 'finished') notice += ' 이 자리는 AI가 이어받습니다.';
+    } else {
+      room.seats.splice(id, 1);
+      fillOpenSeats(room);
+    }
+    room.hostId = person === host ? room.seats.findIndex(p => p.identity) : room.seats.indexOf(host);
+    room.closed = room.hostId < 0;
+    if (!room.closed && person === host) notice += ' 새 방장은 ' + room.seats[room.hostId].name + '님입니다.';
+    if (!room.closed && g?.phase === 'select' && !room.pending[id]) {
+      room.pending[id] = G.choose(g, id, {samples:8});
+      revealWhenReady(G, room);
+    }
+    if (!room.closed && g?.phase === 'resolve') playBotTurns(G, room);
+  }
+  if (kicked) (room.kicked ??= []).push(person.identity);
+  appendChat(room, {name:'방 알림'}, notice, undefined, 'system');
+}
+
 export function apply(G, room, identity, input, revision) {
   const id = room.seats.findIndex(s => s.identity === identity);
   const g = room.game;
   const action = input.action;
   requireThat(!room.closed, '종료된 방입니다.', 404);
+  requireThat(!room.kicked?.includes(identity), '방장이 강퇴하여 이 방에서 나왔습니다.', 403);
   const queued = room.waiting?.findIndex(s => s.identity === identity) ?? -1;
   const watchers=room.spectators ?? [];
   const watcher=watchers.find(person=>person.identity===identity);
   if (action === 'join' && id<0 && queued<0 && !watcher) {
     if (!input.name) return false;
     const name=nickname(input.name);
-    const occupied=[...room.seats.filter(s=>!s.rosterId),...(room.waiting ?? []),...watchers];
+    const occupied=[...room.seats.filter(s=>s.identity),...(room.waiting ?? []),...watchers];
     requireThat(!occupied.some(person=>person.name===name), '이 방에서 이미 사용 중인 닉네임입니다.',409);
     const person={name,identity,chatFrom:nextChatSeq(room)};
     if(g)admitSpectator(room,person);
@@ -136,9 +183,8 @@ export function apply(G, room, identity, input, revision) {
     if(queued>=0 && member.chatFrom===undefined){member.chatFrom=nextChatSeq(room);return true;}
     return false;
   }
-  if(action==='leave' && id<0){
-    if(watcher)watchers.splice(watchers.indexOf(watcher),1);
-    else room.waiting.splice(queued,1);
+  if (action === 'leave') {
+    removeMember(G, room, member, false);
     return true;
   }
   if(action==='chat'){
@@ -150,11 +196,13 @@ export function apply(G, room, identity, input, revision) {
   requireThat(id>=0,'플레이어만 게임을 진행할 수 있습니다.',403);
   // Chat writes advance the storage revision without invalidating game decisions.
   const currentTurn = Number.isInteger(input.revision) && input.revision >= (room.gameRevision ?? revision) && input.revision <= revision;
-  if (action === 'leave') {
-    requireThat(!g, '게임 중에는 자리를 유지합니다.', 409);
-    room.seats.splice(id,1);
-    fillOpenSeats(room);
-    room.closed = !room.seats.length;
+  if (action === 'kick') {
+    requireThat(id === (room.hostId ?? 0), '방장만 강퇴할 수 있습니다.', 403);
+    const person = [...room.seats, ...(room.waiting ?? []), ...watchers]
+      .find(p => p.identity && p.identity.slice(0,24) === input.target);
+    requireThat(person, '이미 방을 나간 참가자입니다.', 409);
+    requireThat(person !== member, '본인은 나가기 버튼을 이용해 주세요.');
+    removeMember(G, room, person, true);
     return true;
   }
   if (action === 'resize') {
@@ -167,13 +215,18 @@ export function apply(G, room, identity, input, revision) {
     fillOpenSeats(room);
     return true;
   }
-  if (action === 'start' || action === 'rematch') {
+  if (['start','rematch','restart'].includes(action)) {
     requireThat(id === (room.hostId ?? 0), '방장만 시작할 수 있습니다.', 403);
-    requireThat(action === 'start' ? !g : g?.phase === 'finished' && currentTurn, '이미 진행 중입니다.', 409);
-    const humans = room.seats.filter(seat => !seat.rosterId);
-    const size = room.capacity ?? humans.length;
+    if (action === 'restart') {
+      requireThat(g && input.matchRevision === (g.startedRevision ?? 0), '이미 새 게임이 시작되었습니다.', 409);
+    } else {
+      requireThat(action === 'start' ? !g : g?.phase === 'finished' && currentTurn, '이미 진행 중입니다.', 409);
+    }
+    const humans = room.seats.filter(seat => seat.identity);
+    const size = room.capacity ?? g?.players.length ?? humans.length;
     requireThat(size >= 2, '두 명 이상 모이면 시작할 수 있습니다.');
     room.game = G.createMatch(humans.map(seat => seat.name), size - humans.length);
+    room.game.startedRevision = revision + 1;
     const host = room.seats[id];
     const seats = G.shuffle(room.game.players.map((player, index) => ({
       player, seat: humans[index] ?? {name: player.name, rosterId: player.rosterId}
@@ -185,8 +238,10 @@ export function apply(G, room, identity, input, revision) {
     room.waiting = [];
     room.pending = {};
     submitBots(G, room);
+    if (g) appendChat(room, {name:'방 알림'}, '방장이 새 게임을 시작했습니다.', undefined, 'system');
     return true;
   }
+  requireThat(!g?.startedRevision || input.revision >= g.startedRevision, '새 게임이 시작되었습니다. 화면을 확인해 주세요.', 409);
   requireThat(g && input.round === g.round && input.phase === g.phase, '게임이 진행됐습니다. 현재 화면을 확인해 주세요.', 409);
   if (action === 'submit') {
     requireThat(g.phase === 'select', '제출 시간이 지났습니다.', 409);
@@ -199,11 +254,7 @@ export function apply(G, room, identity, input, revision) {
       return false;
     }
     room.pending[id] = {id, value: input.value, color: input.color};
-    if (Object.keys(room.pending).length === room.seats.length) {
-      g.roundLeader = g.leader;
-      G.submit(g, room.seats.map((_,i) => room.pending[i]));
-      room.pending = {};
-    }
+    revealWhenReady(G, room);
     return true;
   }
   requireThat(currentTurn, '다른 플레이어가 먼저 진행했습니다.', 409);
